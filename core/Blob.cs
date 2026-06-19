@@ -3,110 +3,51 @@ using System.Numerics;
 namespace Vivarium.Core;
 
 /// <summary>
-/// Wander behavior state machine.
+/// A single blob entity that extends <see cref="Creature"/> with a pastel color
+/// and the <see cref="BlobWalkMode"/> wander rhythm (Idle/Slide state machine).
+///
+/// All physics, gravity, ground clamping, and collision are handled by the
+/// Simulator through the Creature base and the composed IMovementMode.
 /// </summary>
-public enum WanderState
+public class Blob : Creature
 {
-    /// <summary>Blob is stationary, waiting to pick a new direction.</summary>
-    Idle,
-    /// <summary>Blob is moving in a direction.</summary>
-    Sliding
-}
+    // ---------- color ----------
 
-/// <summary>
-/// A single blob entity. Pure data + behavior, no Godot dependency.
-/// </summary>
-public sealed class Blob
-{
-    /// <summary>Circumscribed radius of the 1×1 cube, in arena units.</summary>
-    public const float Radius = 0.5f;
-
-    // ---------- state ----------
-    public Vector2 Position { get; internal set; }
-    public Vector2 Velocity { get; internal set; }
+    /// <summary>Red component in 0–1 range.</summary>
     public float R { get; }
+
+    /// <summary>Green component in 0–1 range.</summary>
     public float G { get; }
+
+    /// <summary>Blue component in 0–1 range.</summary>
     public float B { get; }
-    public WanderState State { get; internal set; }
-    public double StateTimer { get; internal set; }
 
-    // tempo ranges (seconds)
-    private const double IdleMin = 0.5;
-    private const double IdleMax = 3.0;
-    private const double SlideMin = 1.0;
-    private const double SlideMax = 4.0;
-    private const float SpeedMin = 0.2f;
-    private const float SpeedMax = 0.6f;
+    // ---------- defaults ----------
 
-    public Blob(Vector2 position, float r, float g, float b, Random rng)
+    /// <summary>
+    /// Default traits for a blob: Radius 0.5, GravityScale 0 (ground-only).
+    /// </summary>
+    public static CreatureTraits DefaultBlobTraits => new()
     {
-        Position = position;
-        Velocity = Vector2.Zero;
+        Radius = 0.5f,
+        MaxSpeed = 0.6f,
+        GravityScale = 0f,
+    };
+
+    // ---------- construction ----------
+
+    /// <summary>
+    /// Create a blob at the given position with the specified pastel color.
+    /// Uses <see cref="BlobWalkMode"/> for wander behavior.
+    /// If <paramref name="traits"/> is null, <see cref="DefaultBlobTraits"/> is used.
+    /// <paramref name="rng"/> seeds the initial Idle duration and future direction picks.
+    /// </summary>
+    public Blob(Vector3 position, float r, float g, float b, Random rng, CreatureTraits? traits = null)
+        : base(position, traits ?? DefaultBlobTraits, new BlobWalkMode(rng))
+    {
         R = r;
         G = g;
         B = b;
-        StartIdle(rng);
-    }
-
-    // ---------- public API ----------
-
-    /// <summary>Advance simulation by <paramref name="delta"/> seconds.</summary>
-    public void Tick(double delta, Arena arena, Random rng)
-    {
-        StateTimer -= delta;
-
-        switch (State)
-        {
-            case WanderState.Idle:
-                if (StateTimer <= 0)
-                {
-                    StartSlide(rng);
-                }
-                break;
-
-            case WanderState.Sliding:
-                // move
-                Position += Velocity * (float)delta;
-
-                // check bounds — reflect if we hit a wall
-                if (!arena.Contains(Position, Radius))
-                {
-                    var (clamped, reflected) = arena.Reflect(Position, Velocity, Radius);
-                    Position = clamped;
-                    Velocity = reflected;
-                }
-
-                if (StateTimer <= 0)
-                {
-                    StartIdle(rng);
-                }
-                break;
-        }
-    }
-
-    // ---------- state transitions ----------
-
-    private void StartIdle(Random rng)
-    {
-        State = WanderState.Idle;
-        Velocity = Vector2.Zero;
-        StateTimer = RandomRange(rng, IdleMin, IdleMax);
-    }
-
-    private void StartSlide(Random rng)
-    {
-        State = WanderState.Sliding;
-
-        // random direction (unit circle)
-        var angle = rng.NextDouble() * 2.0 * Math.PI;
-        var direction = new Vector2(
-            (float)Math.Cos(angle),
-            (float)Math.Sin(angle)
-        );
-
-        var speed = (float)RandomRange(rng, SpeedMin, SpeedMax);
-        Velocity = direction * speed;
-        StateTimer = RandomRange(rng, SlideMin, SlideMax);
     }
 
     // ---------- color generation ----------
@@ -125,11 +66,6 @@ public sealed class Blob
     }
 
     // ---------- helpers ----------
-
-    private static double RandomRange(Random rng, double min, double max)
-    {
-        return min + rng.NextDouble() * (max - min);
-    }
 
     /// <summary>HSV → RGB. h in [0,360], s,v in [0,1]. Returns RGB in [0,1].</summary>
     private static (float R, float G, float B) HsvToRgb(float h, float s, float v)

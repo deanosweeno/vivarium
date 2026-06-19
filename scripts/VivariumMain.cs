@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Godot;
 using Vivarium.Core;
-using SNVector2 = System.Numerics.Vector2;
+using SNVector3 = System.Numerics.Vector3;
 
 namespace Vivarium.Scripts;
 
@@ -34,7 +34,7 @@ public partial class VivariumMain : Node3D
             return;
         }
 
-        var arena = new Arena(SNVector2.Zero, new SNVector2(10, 10));
+        var arena = Arena.GroundArena(10, 10);
         var seed = _seed != 0 ? _seed : System.Environment.TickCount;
         _sim = new Simulator(arena, seed);
 
@@ -44,7 +44,7 @@ public partial class VivariumMain : Node3D
         {
             var x = (float)(_sim.Rng.NextDouble() * 8 - 4);
             var z = (float)(_sim.Rng.NextDouble() * 8 - 4);
-            _sim.SpawnBlob(new SNVector2(x, z));
+            _sim.SpawnBlob(new SNVector3(x, 0f, z));
         }
     }
 
@@ -52,8 +52,10 @@ public partial class VivariumMain : Node3D
     {
         _sim.Tick(delta);
 
-        foreach (var blob in _sim.Blobs)
+        foreach (var entity in _sim.Entities)
         {
+            if (entity is not Blob blob) continue;
+
             if (!_visuals.TryGetValue(blob, out var visual))
             {
                 if (_blobScene == null) continue;
@@ -92,7 +94,7 @@ public partial class VivariumMain : Node3D
         if (hit.HasValue)
         {
             var point = hit.Value;
-            var worldPos = new SNVector2(point.X, point.Z);
+            var worldPos = new SNVector3(point.X, 0f, point.Z);
 
             if (_sim.Arena.Contains(worldPos))
             {
