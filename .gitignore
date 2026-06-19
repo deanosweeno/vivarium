@@ -1,0 +1,27 @@
+# Godot
+.godot/
+*.uid
+
+# .NET build artifacts
+core/bin/
+core/obj/
+**/bin/
+**/obj/
+
+# Godot mono temp (build cache, not source)
+.godot/mono/temp/
+
+# Temporary scripts (generated during development)
+_attach_scripts.gd
+_gen_scenes.gd
+_set_main_scene.gd
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
