@@ -34,6 +34,19 @@ public partial class VivariumMain : Node3D
             return;
         }
 
+        // Configure directional light shadow settings to prevent shadow acne.
+        foreach (var child in GetChildren())
+        {
+            if (child is DirectionalLight3D light)
+            {
+                light.DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel2Splits;
+                light.DirectionalShadowSplit1 = 0.1f;
+                light.ShadowBias = 0.02f;
+                light.ShadowNormalBias = 0.5f;
+                break;
+            }
+        }
+
         // Size the arena to the loaded map's extents if a MapView is present,
         // otherwise fall back to a small default arena.
         float arenaWidth = 10f, arenaDepth = 10f;
