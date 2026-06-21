@@ -42,7 +42,7 @@ public partial class VivariumMain : Node3D
                 // Rotate to shine straight down (12:00).
                 // DirectionalLight3D shines along local -Z; rotate 90° around X
                 // so local -Z points to world -Y.
-                light.Rotation = new Vector3(Mathf.Pi / 2, 0, 0);
+                light.Rotation = new Vector3(-Mathf.Pi / 2, 0, 0);
                 light.Position = new Vector3(0, 30, 0);
                 light.LightColor = new Color(1, 1, 0.98f);
                 light.LightEnergy = 1.0f;
