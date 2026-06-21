@@ -5,6 +5,67 @@ namespace Vivarium.Core.Tests;
 
 public class SimulatorTests
 {
+    // A map whose every cell is the given biome, so a creature anywhere samples it.
+    private static MapData UniformBiomeMap(Biome biome, int size = 16)
+    {
+        var map = new MapData(size, size, 1f);
+        for (int cz = 0; cz < size; cz++)
+        for (int cx = 0; cx < size; cx++)
+            map.SetCell(cx, cz, new Cell { Terrain = Terrain.Grass, Biome = biome });
+        return map;
+    }
+
+    private static readonly BiomeCatalog HappinessCatalog = BiomeCatalog.Parse("""
+        [
+          { "Biome": "Forest", "HappinessRate":  1.0 },
+          { "Biome": "Desert", "HappinessRate": -1.0 }
+        ]
+        """);
+
+    [Fact]
+    public void BiomeEffects_ForestCell_IncreasesHappiness()
+    {
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Map = UniformBiomeMap(Biome.Forest),
+            Biomes = HappinessCatalog,
+        };
+        var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+
+        for (int i = 0; i < 10; i++)
+            sim.Tick(0.1);
+
+        Assert.True(blob.Happiness > 0f, $"expected happiness > 0, got {blob.Happiness}");
+    }
+
+    [Fact]
+    public void BiomeEffects_DesertCell_DecreasesHappiness()
+    {
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Map = UniformBiomeMap(Biome.Desert),
+            Biomes = HappinessCatalog,
+        };
+        var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+
+        for (int i = 0; i < 10; i++)
+            sim.Tick(0.1);
+
+        Assert.True(blob.Happiness < 0f, $"expected happiness < 0, got {blob.Happiness}");
+    }
+
+    [Fact]
+    public void BiomeEffects_NoMap_LeavesHappinessUnchanged()
+    {
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1); // Map/Biomes null
+        var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+
+        for (int i = 0; i < 10; i++)
+            sim.Tick(0.1);
+
+        Assert.Equal(0f, blob.Happiness, 5);
+    }
+
     [Fact]
     public void SpawnBlobReturnsBlobAtPosition()
     {

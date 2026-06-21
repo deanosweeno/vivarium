@@ -34,16 +34,36 @@ public partial class VivariumMain : Node3D
             return;
         }
 
-        var arena = Arena.GroundArena(10, 10);
+        // Size the arena to the loaded map's extents if a MapView is present,
+        // otherwise fall back to a small default arena.
+        float arenaWidth = 10f, arenaDepth = 10f;
+        var mapView = FindMapView();
+        if (mapView?.Map != null)
+        {
+            arenaWidth = mapView.WorldWidth;
+            arenaDepth = mapView.WorldDepth;
+        }
+
+        var arena = Arena.GroundArena(arenaWidth, arenaDepth);
         var seed = _seed != 0 ? _seed : System.Environment.TickCount;
         _sim = new Simulator(arena, seed);
 
+        // Wire the map + biome rules into the sim so biomes affect creatures at runtime.
+        if (mapView?.Map != null)
+        {
+            _sim.Map = mapView.Map;
+            _sim.Biomes = mapView.Biomes;
+        }
+
         _blobScene ??= ResourceLoader.Load<PackedScene>("res://scenes/Blob.tscn");
 
-        for (int i = 0; i < 3; i++)
+        // Spawn a handful of blobs scattered across the arena.
+        float spawnHalfX = arenaWidth / 2f - 1f;
+        float spawnHalfZ = arenaDepth / 2f - 1f;
+        for (int i = 0; i < 8; i++)
         {
-            var x = (float)(_sim.Rng.NextDouble() * 8 - 4);
-            var z = (float)(_sim.Rng.NextDouble() * 8 - 4);
+            var x = (float)(_sim.Rng.NextDouble() * 2 - 1) * spawnHalfX;
+            var z = (float)(_sim.Rng.NextDouble() * 2 - 1) * spawnHalfZ;
             _sim.SpawnBlob(new SNVector3(x, 0f, z));
         }
     }
@@ -81,6 +101,16 @@ public partial class VivariumMain : Node3D
         {
             SpawnAtMouse(mb.Position);
         }
+    }
+
+    private MapView? FindMapView()
+    {
+        foreach (var child in GetChildren())
+        {
+            if (child is MapView view)
+                return view;
+        }
+        return null;
     }
 
     private void SpawnAtMouse(Vector2 mousePos)

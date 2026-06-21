@@ -1,72 +1,22 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/VivariumMain.cs" id="1_xano7"]
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_kdsu3"]
-albedo_color = Color(0.85, 0.82, 0.75, 1)
-
-[sub_resource type="BoxMesh" id="BoxMesh_xano7"]
-size = Vector3(10, 0.1, 10)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_l2hjx"]
-albedo_color = Color(0.75, 0.7, 0.65, 1)
-
-[sub_resource type="BoxMesh" id="BoxMesh_a8vjh"]
-size = Vector3(10, 1, 0.2)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dyi6u"]
-albedo_color = Color(0.75, 0.7, 0.65, 1)
-
-[sub_resource type="BoxMesh" id="BoxMesh_cil7u"]
-size = Vector3(10, 1, 0.2)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_oihua"]
-albedo_color = Color(0.75, 0.7, 0.65, 1)
-
-[sub_resource type="BoxMesh" id="BoxMesh_2owd7"]
-size = Vector3(0.2, 1, 10)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ncaci"]
-albedo_color = Color(0.75, 0.7, 0.65, 1)
-
-[sub_resource type="BoxMesh" id="BoxMesh_7okgq"]
-size = Vector3(0.2, 1, 10)
+[ext_resource type="Script" path="res://scripts/MapView.cs" id="2_mapvw"]
 
 [node name="VivariumMain" type="Node3D"]
 script = ExtResource("1_xano7")
+
+[node name="MapView" type="Node3D" parent="."]
+script = ExtResource("2_mapvw")
 
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0.78086877, 0.62469506, 0, -0.62469506, 0.78086877, 0, 8, 10)
 fov = 60.0
 script = "res://scripts/CameraOrbit.cs"
+_distance = 130.0
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 10, 5)
 light_color = Color(1, 0.95, 0.85, 1)
 light_energy = 0.8
 shadow_enabled = true
-
-[node name="ArenaFloor" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
-material_override = SubResource("StandardMaterial3D_kdsu3")
-mesh = SubResource("BoxMesh_xano7")
-
-[node name="WallNorth" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -5)
-material_override = SubResource("StandardMaterial3D_l2hjx")
-mesh = SubResource("BoxMesh_a8vjh")
-
-[node name="WallSouth" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 5)
-material_override = SubResource("StandardMaterial3D_dyi6u")
-mesh = SubResource("BoxMesh_cil7u")
-
-[node name="WallEast" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0.5, 0)
-material_override = SubResource("StandardMaterial3D_oihua")
-mesh = SubResource("BoxMesh_2owd7")
-
-[node name="WallWest" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 0.5, 0)
-material_override = SubResource("StandardMaterial3D_ncaci")
-mesh = SubResource("BoxMesh_7okgq")

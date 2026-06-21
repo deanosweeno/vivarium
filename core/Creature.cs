@@ -35,6 +35,13 @@ public class Creature
     public IMovementMode Movement { get; set; }
 
     /// <summary>
+    /// Accumulated happiness, driven by the biome the creature occupies (see
+    /// <see cref="Simulator"/> biome effects). Starts at 0; biomes add or remove
+    /// happiness per second. The first of an intended set of biome-affected stats.
+    /// </summary>
+    public float Happiness { get; internal set; }
+
+    /// <summary>
     /// Create a creature at the given position with specified traits and
     /// movement strategy. If <paramref name="traits"/> is null, defaults
     /// are used.

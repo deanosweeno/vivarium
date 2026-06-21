@@ -1,4 +1,4 @@
-<Project Sdk="Godot.NET.Sdk/4.5.1">
+<Project Sdk="Godot.NET.Sdk/4.7.0">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -9,5 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="core/*Tests.cs" />
+    <!-- tools/ is a separate console project; don't compile it into the game. -->
+    <Compile Remove="tools/**/*.cs" />
   </ItemGroup>
 </Project>

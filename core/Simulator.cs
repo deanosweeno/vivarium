@@ -28,6 +28,19 @@ public sealed class Simulator
     public Arena Arena { get; }
     public Random Rng { get; }
 
+    /// <summary>
+    /// Optional terrain map. When set together with <see cref="Biomes"/>, each tick
+    /// samples the biome under every creature and applies its effects. Null = no
+    /// biome effects (the original headless behavior), so existing callers are unaffected.
+    /// </summary>
+    public MapData? Map { get; set; }
+
+    /// <summary>
+    /// Optional biome rule catalog, paired with <see cref="Map"/>. Supplies the
+    /// per-biome effect numbers (happiness rate, speed multiplier, …).
+    /// </summary>
+    public BiomeCatalog? Biomes { get; set; }
+
     /// <summary>Total number of entities in the simulation.</summary>
     public int EntityCount => Entities.Count;
 
@@ -134,6 +147,9 @@ public sealed class Simulator
             // 2. Movement tick (wander + wall bounce)
             entity.Movement.Tick(delta, entity, Arena, Rng);
 
+            // 2b. Biome effects (happiness, speed) if a map + catalog are present
+            ApplyBiomeEffects(entity, delta);
+
             // 3. Ground clamp — prevent falling through the floor
             float floor = Arena.MinY + entity.Traits.Radius;
             if (entity.Position.Y < floor)
@@ -154,6 +170,33 @@ public sealed class Simulator
             float floor = Arena.MinY + entity.Traits.Radius;
             if (entity.Position.Y < floor)
                 entity.Position = new Vector3(entity.Position.X, floor, entity.Position.Z);
+        }
+    }
+
+    /// <summary>
+    /// Apply the effects of the biome under a creature for this tick: accumulate
+    /// happiness and cap horizontal speed by the biome's speed multiplier. No-op
+    /// unless both <see cref="Map"/> and <see cref="Biomes"/> are set. Reads position
+    /// only — draws no randomness — so the simulation stays deterministic.
+    /// </summary>
+    private void ApplyBiomeEffects(Creature entity, double delta)
+    {
+        if (Map is null || Biomes is null)
+            return;
+
+        var def = Biomes.Get(Map.BiomeAt(entity.Position));
+
+        entity.Happiness += def.HappinessRate * (float)delta;
+
+        // Cap horizontal speed to the biome-adjusted maximum (terrain slows/speeds movement).
+        float maxSpeed = entity.Traits.MaxSpeed * def.SpeedMultiplier;
+        var v = entity.Velocity;
+        var horizontal = new System.Numerics.Vector3(v.X, 0f, v.Z);
+        float speed = horizontal.Length();
+        if (speed > maxSpeed && speed > 1e-6f)
+        {
+            float scale = maxSpeed / speed;
+            entity.Velocity = new System.Numerics.Vector3(v.X * scale, v.Y, v.Z * scale);
         }
     }
 

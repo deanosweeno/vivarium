@@ -1,0 +1,10 @@
+[
+  { "Biome": "Plains",  "WaterChance": 0.5,  "RockChance": 1.0, "FoodChance": 0.6,
+    "HappinessRate":  0.2, "SpeedMultiplier": 1.0,  "TintHex": "#5a8c4d" },
+  { "Biome": "Desert",  "WaterChance": 0.05, "RockChance": 1.8, "FoodChance": 0.1,
+    "HappinessRate": -0.3, "SpeedMultiplier": 1.1,  "TintHex": "#c8b27a" },
+  { "Biome": "Forest",  "WaterChance": 0.8,  "RockChance": 0.7, "FoodChance": 1.4,
+    "HappinessRate":  0.5, "SpeedMultiplier": 0.85, "TintHex": "#33662f" },
+  { "Biome": "Wetland", "WaterChance": 2.0,  "RockChance": 0.4, "FoodChance": 0.9,
+    "HappinessRate":  0.1, "SpeedMultiplier": 0.7,  "TintHex": "#4a6b55" }
+]

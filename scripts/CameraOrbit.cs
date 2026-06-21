@@ -15,7 +15,7 @@ public partial class CameraOrbit : Camera3D
     [Export] private float _minPitch = Mathf.DegToRad(10f);
     [Export] private float _maxPitch = Mathf.DegToRad(85f);
     [Export] private float _minDistance = 4f;
-    [Export] private float _maxDistance = 40f;
+    [Export] private float _maxDistance = 240f;
 
     private bool _orbiting;
 
