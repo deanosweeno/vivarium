@@ -10,5 +10,5 @@
     "HeightOffset": 1.0, "HeightVariation": 0.3 },
   { "Biome": "Wetland", "WaterChance": 2.0,  "RockChance": 0.4, "FoodChance": 0.9,
     "HappinessRate":  0.1, "SpeedMultiplier": 0.7,  "TintHex": "#4a6b55",
-    "HeightOffset": -2.0, "HeightVariation": 0.15 }
+    "HeightOffset": -2.0, "HeightVariation": 0.5 }
 ]
