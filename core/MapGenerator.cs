@@ -63,7 +63,7 @@ public sealed class MapGenerator
 
     /// <summary>
     /// Generate a map from the given config, biome catalog, and seed. Pipeline order:
-    /// AssignBiomes → SculptHeight → FloodWater → CarveLakes → ScatterRocks.
+    /// AssignBiomes → SculptHeight → FloodWater → CarveLakes → SinkWater → ScatterRocks.
     /// </summary>
     public static MapData Generate(MapGenConfig config, BiomeCatalog biomes, int seed)
     {
@@ -87,6 +87,7 @@ public sealed class MapGenerator
         SculptHeight(map, config, biomes, seeds, rng);
         FloodWater(map, config);
         CarveLakes(map, config, biomes, rng);
+        SinkWater(map, config);
         ScatterRocks(map, config, biomes, rng);
 
         return map;
@@ -216,7 +217,100 @@ public sealed class MapGenerator
     }
 
     /// <summary>
-    /// Pass 4: scatter <see cref="MapGenConfig.RockClusters"/> rock clusters. Each
+    /// Pass 4: sink water cells into basins (two-pass).
+    /// Pass 1 — every <see cref="Terrain.Water"/> cell is lowered to at most
+    /// <c>WaterDepth</c> below its lowest adjacent non-water cell (shore). Interior
+    /// cells with no dry neighbor sink relative to their own height. Heights are read
+    /// from a pre-pass snapshot for order-independence.
+    /// Pass 2 — a second snapshot is taken after pass 1, then every Water cell is
+    /// lowered to at most its lowest neighbor height (water or land). This propagates
+    /// the shore depression inward so no water cell sits higher than any water neighbor,
+    /// eliminating the reverse-slope ripple artifact.
+    /// Both passes read height only and draw no randomness; determinism is unaffected.
+    /// </summary>
+    private static void SinkWater(MapData map, MapGenConfig config)
+    {
+        if (config.WaterDepth <= 0f)
+            return;
+
+        // Pass 1: sink each water cell relative to its lowest dry neighbor (shore),
+        // or relative to self for interior cells with no dry neighbor.
+        var orig = SnapshotHeights(map);
+
+        for (int cz = 0; cz < map.Depth; cz++)
+        for (int cx = 0; cx < map.Width; cx++)
+        {
+            var cell = map.GetCell(cx, cz);
+            if (cell.Terrain != Terrain.Water)
+                continue;
+
+            // Lowest non-water neighbor (8-connected) is the shore reference.
+            float shore = float.MaxValue;
+            for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                if (dx == 0 && dz == 0)
+                    continue;
+                int nx = cx + dx;
+                int nz = cz + dz;
+                if (!map.InBounds(nx, nz))
+                    continue;
+                if (map.GetCell(nx, nz).Terrain == Terrain.Water)
+                    continue;
+                shore = MathF.Min(shore, orig[nz * map.Width + nx]);
+            }
+
+            float target = shore == float.MaxValue
+                ? orig[cz * map.Width + cx] - config.WaterDepth  // interior: relative to self
+                : shore - config.WaterDepth;                     // shore: relative to dry land
+            cell.Height = MathF.Min(cell.Height, target);
+            map.SetCell(cx, cz, cell);
+        }
+
+        // Pass 2: propagate depression inward so no water cell sits higher than
+        // any of its water neighbors. This eliminates the reverse-slope artifact
+        // where a shore-adjacent cell (sunk to shore - WaterDepth) ended up
+        // deeper than its interior neighbor (sunk to self - WaterDepth in pass 1).
+        var pass1 = SnapshotHeights(map);
+        for (int cz = 0; cz < map.Depth; cz++)
+        for (int cx = 0; cx < map.Width; cx++)
+        {
+            var cell = map.GetCell(cx, cz);
+            if (cell.Terrain != Terrain.Water)
+                continue;
+
+            float minNeighbor = float.MaxValue;
+            for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                if (dx == 0 && dz == 0)
+                    continue;
+                int nx = cx + dx;
+                int nz = cz + dz;
+                if (!map.InBounds(nx, nz))
+                    continue;
+                minNeighbor = MathF.Min(minNeighbor, pass1[nz * map.Width + nx]);
+            }
+            cell.Height = MathF.Min(cell.Height, minNeighbor);
+            map.SetCell(cx, cz, cell);
+        }
+    }
+
+    /// <summary>
+    /// Take a height snapshot of every cell for order-independent processing.
+    /// The returned array is indexed as [z * map.Width + x].
+    /// </summary>
+    private static float[] SnapshotHeights(MapData map)
+    {
+        var snap = new float[map.Width * map.Depth];
+        for (int cz = 0; cz < map.Depth; cz++)
+        for (int cx = 0; cx < map.Width; cx++)
+            snap[cz * map.Width + cx] = map.GetCell(cx, cz).Height;
+        return snap;
+    }
+
+    /// <summary>
+    /// Pass 5: scatter <see cref="MapGenConfig.RockClusters"/> rock clusters. Each
     /// cluster starts at a random cell and does a random walk of
     /// <see cref="MapGenConfig.RockClusterSize"/> steps. A visited cell becomes Rock
     /// only if it is currently Grass (never overwriting Water) and a per-cell roll
