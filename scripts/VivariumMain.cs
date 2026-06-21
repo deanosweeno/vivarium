@@ -34,11 +34,20 @@ public partial class VivariumMain : Node3D
             return;
         }
 
-        // Configure directional light shadow settings to prevent shadow acne.
+        // Configure directional light: high-noon direction, shadow settings, and GI.
         foreach (var child in GetChildren())
         {
             if (child is DirectionalLight3D light)
             {
+                // Rotate to shine straight down (12:00).
+                // DirectionalLight3D shines along local -Z; rotate 90° around X
+                // so local -Z points to world -Y.
+                light.Rotation = new Vector3(Mathf.Pi / 2, 0, 0);
+                light.Position = new Vector3(0, 30, 0);
+                light.LightColor = new Color(1, 1, 0.98f);
+                light.LightEnergy = 1.0f;
+
+                // Shadow settings to prevent acne on the dense terrain mesh.
                 light.DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel2Splits;
                 light.DirectionalShadowSplit1 = 0.1f;
                 light.ShadowBias = 0.02f;
@@ -46,6 +55,21 @@ public partial class VivariumMain : Node3D
                 break;
             }
         }
+
+        // Add WorldEnvironment with SDFGI + ambient light so shadows aren't pitch black.
+        var env = new Godot.Environment();
+        env.SdfgiEnabled = true;
+        env.SdfgiUseOcclusion = false;
+        env.SdfgiReadSkyLight = true;
+        env.SdfgiBounceFeedback = 0.5f;
+        env.SdfgiCascades = 4;
+        env.SdfgiMinCellSize = 0.5f;
+        env.AmbientLightSource = Godot.Environment.AmbientSource.Color;
+        env.AmbientLightColor = new Color(0.25f, 0.30f, 0.45f);
+        env.AmbientLightSkyContribution = 0.0f;
+        env.AmbientLightEnergy = 0.4f;
+        var worldEnv = new WorldEnvironment { Environment = env };
+        AddChild(worldEnv);
 
         // Size the arena to the loaded map's extents if a MapView is present,
         // otherwise fall back to a small default arena.
