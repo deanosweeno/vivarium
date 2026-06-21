@@ -90,7 +90,7 @@ public class MapGeneratorTests
         for (int cx = 0; cx < map.Width; cx++)
         {
             var t = map.GetCell(cx, cz).Terrain;
-            Assert.True(t == Terrain.Grass || t == Terrain.Water || t == Terrain.Rock);
+            Assert.True(t is Terrain.Grass or Terrain.Water or Terrain.Rock or Terrain.Sand or Terrain.Marsh);
         }
 
         // Water must be preserved despite heavy rock scattering.
@@ -117,6 +117,47 @@ public class MapGeneratorTests
         for (int cx = 0; cx < map.Width; cx++)
             seen.Add(map.GetCell(cx, cz).Biome);
         Assert.True(seen.Count > 1, "expected the map to contain more than one biome");
+    }
+
+    [Fact]
+    public void Generate_BiomeDefaultTerrains_ArePlaced()
+    {
+        // Lakes may overwrite some walkable cells with Water, but each biome's
+        // default terrain should appear. Test each biome in isolation so the
+        // assertion is deterministic regardless of seed.
+
+        var desertConfig = new MapGenConfig
+        {
+            Width = 32, Depth = 32, CellSize = 1f,
+            LakeCount = 1, LakeRadius = 5,
+            RockClusters = 8, RockClusterSize = 5,
+            BiomeNames = new HashSet<Biome> { Biome.Desert },
+        };
+        var desert = MapGenerator.Generate(desertConfig, 42);
+        Assert.True(CountTerrain(desert, Terrain.Sand) > 0,
+            "Desert-only map should have Sand");
+
+        var wetlandConfig = new MapGenConfig
+        {
+            Width = 32, Depth = 32, CellSize = 1f,
+            LakeCount = 1, LakeRadius = 5,
+            RockClusters = 8, RockClusterSize = 5,
+            BiomeNames = new HashSet<Biome> { Biome.Wetland },
+        };
+        var wetland = MapGenerator.Generate(wetlandConfig, 42);
+        Assert.True(CountTerrain(wetland, Terrain.Marsh) > 0,
+            "Wetland-only map should have Marsh");
+
+        var plainsConfig = new MapGenConfig
+        {
+            Width = 32, Depth = 32, CellSize = 1f,
+            LakeCount = 1, LakeRadius = 5,
+            RockClusters = 8, RockClusterSize = 5,
+            BiomeNames = new HashSet<Biome> { Biome.Plains },
+        };
+        var plains = MapGenerator.Generate(plainsConfig, 42);
+        Assert.True(CountTerrain(plains, Terrain.Grass) > 0,
+            "Plains-only map should have Grass");
     }
 
     [Fact]
@@ -187,13 +228,8 @@ public class MapGeneratorTests
     [Fact]
     public void Generate_BiomeNamesAll_MatchesNull()
     {
-        var configAll = new MapGenConfig
-        {
-            Width = 32, Depth = 32, CellSize = 1f,
-            LakeCount = 1, LakeRadius = 5,
-            RockClusters = 8, RockClusterSize = 5,
-            BiomeNames = new HashSet<Biome>(Enum.GetValues<Biome>()),
-        };
+        // Null BiomeNames now defaults to {Plains, Desert, Wetland} (Forest excluded).
+        // The explicit 3-biome set should match null byte-for-byte.
         var configNull = new MapGenConfig
         {
             Width = 32, Depth = 32, CellSize = 1f,
@@ -201,8 +237,15 @@ public class MapGeneratorTests
             RockClusters = 8, RockClusterSize = 5,
             BiomeNames = null,
         };
+        var configThree = new MapGenConfig
+        {
+            Width = 32, Depth = 32, CellSize = 1f,
+            LakeCount = 1, LakeRadius = 5,
+            RockClusters = 8, RockClusterSize = 5,
+            BiomeNames = new HashSet<Biome> { Biome.Plains, Biome.Desert, Biome.Wetland },
+        };
 
-        var a = MapGenerator.Generate(configAll, 42);
+        var a = MapGenerator.Generate(configThree, 42);
         var b = MapGenerator.Generate(configNull, 42);
 
         for (int cz = 0; cz < a.Depth; cz++)
@@ -283,7 +326,8 @@ public class MapGeneratorTests
             Width = 32, Depth = 32, CellSize = 1f,
             LakeCount = 1, LakeRadius = 5,
             RockClusters = 8, RockClusterSize = 5,
-            BiomeSeedCount = 4,
+            BiomeSeedCount = 8,
+            BiomeNames = new HashSet<Biome> { Biome.Plains, Biome.Desert },
             HeightAmplitude = 1f, // keep noise small so offset dominates
             SeaLevel = -1000f, // no flooding — test pure height
         };
@@ -348,6 +392,107 @@ public class MapGeneratorTests
     }
 
     [Fact]
+    public void Generate_SinkWater_DropsWaterBelowDryNeighbors()
+    {
+        // Heavy lake coverage so plenty of water cells border dry land.
+        var config = new MapGenConfig
+        {
+            Width = 32, Depth = 32, CellSize = 1f,
+            LakeCount = 1, LakeRadius = 6,
+            RockClusters = 0, RockClusterSize = 0,
+            WaterDepth = 1.5f,
+        };
+        var map = MapGenerator.Generate(config, 42);
+
+        bool checkedAny = false;
+        for (int cz = 0; cz < map.Depth; cz++)
+        for (int cx = 0; cx < map.Width; cx++)
+        {
+            if (map.GetCell(cx, cz).Terrain != Terrain.Water)
+                continue;
+
+            // Find the lowest dry neighbor's height (the shore reference).
+            float shore = float.MaxValue;
+            for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                if (dx == 0 && dz == 0) continue;
+                int nx = cx + dx, nz = cz + dz;
+                if (!map.InBounds(nx, nz)) continue;
+                if (map.GetCell(nx, nz).Terrain == Terrain.Water) continue;
+                shore = MathF.Min(shore, map.GetCell(nx, nz).Height);
+            }
+            if (shore == float.MaxValue)
+                continue; // interior cell — no dry neighbor to compare against
+
+            checkedAny = true;
+            Assert.True(map.GetCell(cx, cz).Height <= shore - config.WaterDepth + 1e-3f,
+                $"water cell ({cx},{cz}) height {map.GetCell(cx, cz).Height:0.00} should be " +
+                $"at least {config.WaterDepth} below shore {shore:0.00}");
+        }
+        Assert.True(checkedAny, "expected at least one shore-adjacent water cell to verify");
+    }
+
+    [Fact]
+    public void Generate_WaterDepthZero_LeavesHeightsUnchanged()
+    {
+        var config = new MapGenConfig
+        {
+            Width = 32, Depth = 32, CellSize = 1f,
+            LakeCount = 1, LakeRadius = 6,
+            RockClusters = 8, RockClusterSize = 5,
+            WaterDepth = 0f,
+        };
+        // Same generation but with sinking on; only water-cell heights may differ.
+        var withSink = new MapGenConfig
+        {
+            Width = 32, Depth = 32, CellSize = 1f,
+            LakeCount = 1, LakeRadius = 6,
+            RockClusters = 8, RockClusterSize = 5,
+            WaterDepth = 1.5f,
+        };
+
+        var flat = MapGenerator.Generate(config, 42);
+        var basin = MapGenerator.Generate(withSink, 42);
+
+        // With WaterDepth = 0 the pass is a no-op: every non-water cell keeps its
+        // height, and water cells are unchanged relative to the sinking version's dry land.
+        for (int cz = 0; cz < flat.Depth; cz++)
+        for (int cx = 0; cx < flat.Width; cx++)
+        {
+            var f = flat.GetCell(cx, cz);
+            var b = basin.GetCell(cx, cz);
+            Assert.Equal(f.Terrain, b.Terrain);
+            if (f.Terrain != Terrain.Water)
+                Assert.Equal(f.Height, b.Height, 5);
+            else
+                Assert.True(b.Height <= f.Height + 1e-3f,
+                    "sinking should only lower water cells, never raise them");
+        }
+    }
+
+    [Fact]
+    public void Generate_WithSinkWater_IsDeterministic()
+    {
+        var config = new MapGenConfig
+        {
+            Width = 32, Depth = 32, CellSize = 1f,
+            LakeCount = 1, LakeRadius = 6,
+            RockClusters = 8, RockClusterSize = 5,
+            WaterDepth = 1.5f,
+        };
+        var a = MapGenerator.Generate(config, 42);
+        var b = MapGenerator.Generate(config, 42);
+
+        for (int cz = 0; cz < a.Depth; cz++)
+        for (int cx = 0; cx < a.Width; cx++)
+        {
+            Assert.Equal(a.GetCell(cx, cz).Terrain, b.GetCell(cx, cz).Terrain);
+            Assert.Equal(a.GetCell(cx, cz).Height, b.GetCell(cx, cz).Height, 5);
+        }
+    }
+
+    [Fact]
     public void Generate_BoundaryBlend_NoCliffs()
     {
         var biomes = BiomeCatalog.Parse("""
@@ -363,7 +508,8 @@ public class MapGeneratorTests
             Width = 32, Depth = 32, CellSize = 1f,
             LakeCount = 0,
             RockClusters = 0, RockClusterSize = 0,
-            BiomeSeedCount = 3,
+            BiomeSeedCount = 8,
+            BiomeNames = new HashSet<Biome> { Biome.Plains, Biome.Desert },
             SeaLevel = -1000f,
         };
         var map = MapGenerator.Generate(config, biomes, 42);

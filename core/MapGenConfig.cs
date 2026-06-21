@@ -23,7 +23,7 @@ public sealed class MapGenConfig
     public int LakeRadius { get; init; } = 12;
 
     /// <summary>Number of rock clusters to scatter.</summary>
-    public int RockClusters { get; init; } = 8;
+    public int RockClusters { get; init; } = 0;
 
     /// <summary>Steps in each rock cluster's random walk (cells per cluster).</summary>
     public int RockClusterSize { get; init; } = 5;
@@ -69,4 +69,11 @@ public sealed class MapGenConfig
     /// become <see cref="Terrain.Water"/> (basins/ponds) in the <c>FloodWater</c> pass.
     /// </summary>
     public float SeaLevel { get; init; } = 0f;
+
+    /// <summary>
+    /// Depth in world units that water cells are sunk below the lowest adjacent
+    /// non-water cell in the <c>SinkWater</c> pass, carving a basin so lakes/ponds
+    /// read as genuine depressions instead of water painted on flat ground. 0 disables sinking.
+    /// </summary>
+    public float WaterDepth { get; init; } = 1.5f;
 }

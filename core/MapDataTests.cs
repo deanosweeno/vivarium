@@ -31,15 +31,20 @@ public class MapDataTests
     }
 
     [Fact]
-    public void IsWalkable_TrueOnlyForGrass()
+    public void IsWalkable_GrassSandMarshAreWalkable()
     {
-        var map = new MapData(2, 2, 1f);
+        var map = new MapData(3, 2, 1f);
         map.SetCell(0, 0, new Cell { Terrain = Terrain.Water });
         map.SetCell(1, 0, new Cell { Terrain = Terrain.Rock });
+        map.SetCell(0, 1, new Cell { Terrain = Terrain.Sand });
+        map.SetCell(1, 1, new Cell { Terrain = Terrain.Marsh });
+        map.SetCell(2, 0, new Cell { Terrain = Terrain.Grass });
 
-        Assert.False(map.IsWalkable(0, 0));
-        Assert.False(map.IsWalkable(1, 0));
-        Assert.True(map.IsWalkable(0, 1));
+        Assert.False(map.IsWalkable(0, 0)); // Water
+        Assert.False(map.IsWalkable(1, 0)); // Rock
+        Assert.True(map.IsWalkable(0, 1));  // Sand
+        Assert.True(map.IsWalkable(1, 1));  // Marsh
+        Assert.True(map.IsWalkable(2, 0));  // Grass
     }
 
     [Theory]

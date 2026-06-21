@@ -395,22 +395,36 @@ place, so the renderer and any future surface-walking sim read the same smooth s
 - `FloodWater` then turns every cell below `SeaLevel` into `Terrain.Water`, leaving the cell
   height at its low value (the lakebed). This is the **primary** water source; the existing
   biome-weighted `CarveLakes` only adds extra ponds on remaining grass.
+- `SinkWater` runs **after** both water passes (so it sees every water cell). Each water cell
+  is lowered to `WaterDepth` below its lowest adjacent **non-water** cell, carving a basin so
+  lakes and biome-carved ponds read as genuine depressions rather than water painted on flat
+  ground; interior cells with no dry neighbor sink relative to their own height, so large
+  lakes keep deepening inward. Heights are read from a pre-pass snapshot, so a freshly-lowered
+  neighbor never cascades — the result is order-independent. Reads height only (no rng), so
+  determinism holds.
+- Full pipeline order: `AssignBiomes → SculptHeight → FloodWater → CarveLakes → SinkWater → ScatterRocks`.
 - Tunables live in `MapGenConfig` (`HeightAmplitude`, `HeightScale`, `HeightOctaves`,
-  `SeaLevel`) for global hill shape, plus `BiomeDef.HeightOffset` and
+  `SeaLevel`, `WaterDepth`) for global hill shape, plus `BiomeDef.HeightOffset` and
   `BiomeDef.HeightVariation` for per-biome elevation and roughness. The biome values
   live in `assets/biomes.json` and can be tuned per-biome or overridden at the CLI
   (`--height-offsets`, `--height-variations`).
 
 **Presentation (`scripts/MapView.cs`):** builds **one** smooth ground mesh (an `ArrayMesh`
-via `SurfaceTool`): a vertex per cell center lifted to its height, joined into quads, with
-`GenerateNormals()` for smooth shading and **per-vertex colors** (biome `TintHex` for grass,
-grey for rock, a muted lakebed tone for water) so biomes blend across the surface instead of
-forming hard tiles. A single translucent water plane is drawn at `Map.SeaLevel`; land rises
-above it and basins show through. This replaced the old per-cell box tiles.
+via `SurfaceTool`). Each cell quad is **subdivided `SubdivPerCell`× per axis**; every
+sub-vertex samples the smooth `MapData.HeightAt` field for elevation and a bilinearly-blended
+`ColorAt` (the color analogue of `HeightAt`, blending the four surrounding cells'
+per-vertex colors — biome `TintHex` for grass, grey for rock, a muted lakebed tone for
+water). With `GenerateNormals()` this makes hills and biome borders read as continuous
+gradients instead of stairstepping along the coarse cell grid — a purely cosmetic refinement
+that leaves the simulation grid and baked map untouched. A single translucent water plane is
+drawn at `Map.SeaLevel`; land rises above it and the sunk basins show through as water.
 
-**Deferred:** creatures still clamp to `y=0` in `Simulator` — they don't yet follow the
-surface. The follow-up is to replace that floor with `Map.HeightAt(position)` (the bilinear
-seam already exists); position-only, so determinism holds.
+**Creatures follow the surface (`core/Simulator.cs`):** the ground-placement step of `Tick`
+rests each entity on the terrain under it via `GroundFloor(pos)` (= `Map.HeightAt(pos)` when a
+map is set, else the flat `Arena.MinY`). Terrain-bound creatures (`GravityScale == 0`, e.g.
+blobs) **snap** to that surface every tick — riding hills up and settling into basins down —
+while gravity creatures clamp up onto it as they fall. Position-only (no rng), so determinism
+holds; with no map it reduces to the original flat `Arena.MinY` floor.
 
 ---
 

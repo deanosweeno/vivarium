@@ -96,24 +96,46 @@ public partial class MapView : Node3D
     }
 
     /// <summary>
-    /// Build the single smooth ground surface. One vertex sits at each cell center,
-    /// lifted to that cell's baked <see cref="Cell.Height"/>; adjacent cells are joined
-    /// into quads (two triangles each). Each vertex is colored by its cell
-    /// (biome <see cref="BiomeDef.TintHex"/> for grass, grey for rock, a muted lakebed
-    /// tone for water), and <c>GenerateNormals</c> gives smooth shading — so biomes blend
-    /// across the surface instead of forming hard squares.
+    /// Build the single smooth ground surface. Each cell quad is subdivided
+    /// <see cref="SubdivPerCell"/>× per axis; sub-vertices sample the smooth
+    /// <see cref="MapData.HeightAt"/> field for elevation and a bilinearly-blended
+    /// <see cref="ColorAt"/> for color (biome <see cref="BiomeDef.TintHex"/> for grass,
+    /// grey for rock, a muted lakebed tone for water). <c>GenerateNormals</c> gives smooth
+    /// shading — so hills and biome borders read as continuous gradients, not coarse facets.
     /// </summary>
+    /// <summary>
+    /// Sub-quads emitted per cell along each axis. Each cell quad is divided into
+    /// SubdivPerCell × SubdivPerCell smaller quads whose vertices are sampled from the
+    /// smooth <see cref="MapData.HeightAt"/> field and a bilinearly-blended color, so
+    /// hill silhouettes and biome color borders read smoothly instead of stairstepping
+    /// along the coarse cell grid. Purely cosmetic — the simulation grid is untouched.
+    /// </summary>
+    private const int SubdivPerCell = 4;
+
     private void BuildTerrainMesh(MapData map)
     {
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
 
-        // Iterate over quads formed by four neighboring cell centers.
-        for (int cz = 0; cz < map.Depth - 1; cz++)
-        for (int cx = 0; cx < map.Width - 1; cx++)
+        // Fractional cell-center coordinates run 0 .. Width-1 (the span between the
+        // first and last cell centers), stepped SubdivPerCell times per cell.
+        int stepsX = (map.Width - 1) * SubdivPerCell;
+        int stepsZ = (map.Depth - 1) * SubdivPerCell;
+        float inv = 1f / SubdivPerCell;
+
+        for (int j = 0; j < stepsZ; j++)
+        for (int i = 0; i < stepsX; i++)
         {
-            // Corner cells of this quad.
-            AddQuad(st, map, cx, cz);
+            float fx0 = i * inv, fx1 = (i + 1) * inv;
+            float fz0 = j * inv, fz1 = (j + 1) * inv;
+
+            EmitSubVertex(st, map, fx0, fz0);
+            EmitSubVertex(st, map, fx1, fz0);
+            EmitSubVertex(st, map, fx0, fz1);
+
+            EmitSubVertex(st, map, fx1, fz0);
+            EmitSubVertex(st, map, fx1, fz1);
+            EmitSubVertex(st, map, fx0, fz1);
         }
 
         st.GenerateNormals();
@@ -133,35 +155,62 @@ public partial class MapView : Node3D
         AddChild(instance);
     }
 
-    /// <summary>Emit the two triangles of the quad whose lower-left corner is cell (cx, cz).</summary>
-    private void AddQuad(SurfaceTool st, MapData map, int cx, int cz)
+    /// <summary>
+    /// Emit one mesh vertex at fractional cell-center coordinate (fx, fz), where integer
+    /// values land exactly on cell centers. Height comes from the smooth
+    /// <see cref="MapData.HeightAt"/> field and color from the bilinear <see cref="ColorAt"/>,
+    /// so sub-vertices interpolate between cell centers with no seams.
+    /// </summary>
+    private void EmitSubVertex(SurfaceTool st, MapData map, float fx, float fz)
     {
-        // Four corners (cell centers).
-        EmitVertex(st, map, cx, cz);
-        EmitVertex(st, map, cx + 1, cz);
-        EmitVertex(st, map, cx, cz + 1);
+        // Inverse of HeightAt's cell-center mapping: world = (frac - N/2 + 0.5) * CellSize.
+        float wx = (fx - map.Width / 2f + 0.5f) * map.CellSize;
+        float wz = (fz - map.Depth / 2f + 0.5f) * map.CellSize;
 
-        EmitVertex(st, map, cx + 1, cz);
-        EmitVertex(st, map, cx + 1, cz + 1);
-        EmitVertex(st, map, cx, cz + 1);
+        st.SetColor(ColorAt(map, fx, fz));
+        st.AddVertex(new Vector3(wx, map.HeightAt(new SNVector3(wx, 0f, wz)), wz));
     }
 
-    /// <summary>Add one mesh vertex at the given cell's center + baked height, colored by the cell.</summary>
-    private void EmitVertex(SurfaceTool st, MapData map, int cx, int cz)
+    /// <summary>
+    /// Bilinearly blend the per-cell <see cref="CellColor"/> of the four cell centers
+    /// surrounding fractional coordinate (fx, fz), clamping to the grid edge — the color
+    /// analogue of <see cref="MapData.HeightAt"/>. Blending fades biome tints (and the
+    /// rock/water tones at their edges) instead of stairstepping at cell boundaries.
+    /// </summary>
+    private Color ColorAt(MapData map, float fx, float fz)
     {
-        var cell = map.GetCell(cx, cz);
-        SNVector3 c = map.CellToWorldCenter(cx, cz);
-        st.SetColor(CellColor(cell));
-        st.AddVertex(new Vector3(c.X, cell.Height, c.Z));
+        int x0 = (int)Mathf.Floor(fx);
+        int z0 = (int)Mathf.Floor(fz);
+        float tx = fx - x0;
+        float tz = fz - z0;
+
+        Color c00 = ClampedCellColor(map, x0, z0);
+        Color c10 = ClampedCellColor(map, x0 + 1, z0);
+        Color c01 = ClampedCellColor(map, x0, z0 + 1);
+        Color c11 = ClampedCellColor(map, x0 + 1, z0 + 1);
+
+        Color top = c00.Lerp(c10, tx);
+        Color bottom = c01.Lerp(c11, tx);
+        return top.Lerp(bottom, tz);
     }
 
-    /// <summary>Surface color for a cell: biome tint for grass, grey for rock, muted lakebed for water.</summary>
+    /// <summary>Cell color with the coordinate clamped to the grid edge.</summary>
+    private Color ClampedCellColor(MapData map, int cx, int cz)
+    {
+        cx = Mathf.Clamp(cx, 0, map.Width - 1);
+        cz = Mathf.Clamp(cz, 0, map.Depth - 1);
+        return CellColor(map.GetCell(cx, cz));
+    }
+
+    /// <summary>Surface color for a cell: hardcoded colors for Rock, Water, Sand, Marsh; Grass uses its biome tint.</summary>
     private Color CellColor(Cell cell)
     {
         return cell.Terrain switch
         {
             Terrain.Rock => new Color(0.5f, 0.48f, 0.45f),
             Terrain.Water => new Color(0.18f, 0.32f, 0.4f), // lakebed under the water plane
+            Terrain.Sand => new Color(0.83f, 0.71f, 0.39f), // sandy beige
+            Terrain.Marsh => new Color(0.24f, 0.35f, 0.24f), // dark green
             _ => Color.FromHtml(Biomes.Get(cell.Biome).TintHex),
         };
     }

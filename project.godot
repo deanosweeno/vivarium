@@ -22,6 +22,10 @@ config/features=PackedStringArray("4.7", "C#", "Forward Plus")
 
 project/assembly_name="Vivarium"
 
+[rendering]
+
+renderer/rendering_method.mobile="forward_plus"
+
 [autoload]
 
 

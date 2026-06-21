@@ -14,6 +14,10 @@ public enum Terrain
     Water = 1,
     /// <summary>Rock / obstacle — not walkable.</summary>
     Rock = 2,
+    /// <summary>Sand — walkable, default terrain of Desert biomes.</summary>
+    Sand = 3,
+    /// <summary>Marsh — walkable, default terrain of Wetland biomes.</summary>
+    Marsh = 4,
 }
 
 /// <summary>
@@ -131,11 +135,13 @@ public sealed class MapData
     }
 
     /// <summary>
-    /// Derived walkability: a cell is walkable iff its terrain is Grass.
-    /// Never stored — always computed from the cell's terrain.
+    /// Derived walkability: a cell is walkable iff its terrain is Grass, Sand,
+    /// or Marsh. Water and Rock are not. Never stored — always computed from
+    /// the cell's terrain, so a terrain enum addition is the single place to
+    /// declare walkability.
     /// </summary>
     public bool IsWalkable(int cx, int cz)
-        => GetCell(cx, cz).Terrain == Terrain.Grass;
+        => GetCell(cx, cz).Terrain is Terrain.Grass or Terrain.Sand or Terrain.Marsh;
 
     /// <summary>The biome of the cell at (cx, cz). Throws if out of bounds.</summary>
     public Biome GetBiome(int cx, int cz) => GetCell(cx, cz).Biome;

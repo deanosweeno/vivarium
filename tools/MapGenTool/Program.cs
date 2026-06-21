@@ -16,7 +16,7 @@ using Vivarium.Core;
 //   --cellsize <float>  world units per cell (default 1.0)
 //   --lakes <int>       lake count (default 1)
 //   --lakeradius <int>  lake radius in cells (default 12)
-//   --rocks <int>       rock cluster count (default 8)
+//   --rocks <int>       rock cluster count (default 0)
 //   --rocksize <int>    steps per rock cluster (default 5)
 //   --biomeseeds <int>  biome region seed points (default 6)
 //   --biome-names <csv> comma-separated biome names to include (default all)
@@ -25,6 +25,7 @@ using Vivarium.Core;
 //   --heightscale <float> noise feature size in cells (default 24)
 //   --octaves <int>     fBm height detail octaves (default 4)
 //   --sealevel <float>  water line; cells below it flood (default 0)
+//   --waterdepth <float> depth water cells sink below dry neighbors (default 1.5)
 //   --height-offsets <kv>     per-biome height offsets, e.g. "Plains=1.0,Desert=-1.0"
 //   --height-variations <kv>  per-biome height variation, e.g. "Plains=0.3,Desert=0.5"
 
@@ -40,7 +41,7 @@ var config = new MapGenConfig
     CellSize = GetFloat(args2, "cellsize", 1.0f),
     LakeCount = GetInt(args2, "lakes", 1),
     LakeRadius = GetInt(args2, "lakeradius", 12),
-    RockClusters = GetInt(args2, "rocks", 8),
+    RockClusters = GetInt(args2, "rocks", 0),
     RockClusterSize = GetInt(args2, "rocksize", 5),
     BiomeSeedCount = GetInt(args2, "biomeseeds", 6),
     BiomeNames = ParseBiomeNames(args2),
@@ -48,6 +49,7 @@ var config = new MapGenConfig
     HeightScale = GetFloat(args2, "heightscale", 24f),
     HeightOctaves = GetInt(args2, "octaves", 4),
     SeaLevel = GetFloat(args2, "sealevel", 0f),
+    WaterDepth = GetFloat(args2, "waterdepth", 1.5f),
 };
 
 string biomesPath = args2.TryGetValue("biomes", out var bp) ? bp : "assets/biomes.json";
@@ -222,6 +224,8 @@ static void PrintPreview(MapData map)
             {
                 Terrain.Water => '~',
                 Terrain.Rock => '#',
+                Terrain.Sand => 's',
+                Terrain.Marsh => 'm',
                 _ => '.',
             };
         }
@@ -291,7 +295,7 @@ static void PrintHeightSummary(MapData map, float seaLevel)
 
 static void PrintCounts(MapData map)
 {
-    int grass = 0, water = 0, rock = 0;
+    int grass = 0, water = 0, rock = 0, sand = 0, marsh = 0;
     for (int cz = 0; cz < map.Depth; cz++)
     for (int cx = 0; cx < map.Width; cx++)
     {
@@ -299,8 +303,10 @@ static void PrintCounts(MapData map)
         {
             case Terrain.Water: water++; break;
             case Terrain.Rock: rock++; break;
+            case Terrain.Sand: sand++; break;
+            case Terrain.Marsh: marsh++; break;
             default: grass++; break;
         }
     }
-    Console.WriteLine($"cells: grass={grass} water={water} rock={rock}  ('.'=grass '~'=water '#'=rock)");
+    Console.WriteLine($"cells: grass={grass} water={water} rock={rock} sand={sand} marsh={marsh}  ('.'=grass '~'=water '#'=rock 's'=sand 'm'=marsh)");
 }

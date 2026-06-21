@@ -403,12 +403,13 @@ public class SimulatorTests
         var traits = new CreatureTraits { GravityScale = 0f };
         var creature = sim.SpawnCreature(new Vector3(0, 2, 0), traits);
 
-        float initialY = creature.Position.Y;
-
         sim.Tick(1.0);
 
-        // Y should be unchanged (GravityScale = 0, so no gravity applied)
-        Assert.Equal(initialY, creature.Position.Y, 3);
+        // GravityScale = 0 means gravity is never applied — vertical velocity stays zero
+        // (a gravity creature would have accumulated downward velocity).
+        Assert.Equal(0f, creature.Velocity.Y, 4);
+        // Terrain-bound: it snaps to the ground surface (arena floor + radius), not floating.
+        Assert.Equal(arena.MinY + creature.Traits.Radius, creature.Position.Y, 4);
     }
 
     [Fact]
@@ -685,5 +686,103 @@ public class SimulatorTests
         Assert.Equal(2, sim.EntityCount);
         Assert.NotNull(sim.Entities[0]);
         Assert.NotNull(sim.Entities[1]);
+    }
+
+    // -------------------------------------------------
+    // Surface following (blobs ride the terrain height)
+    // -------------------------------------------------
+
+    // A map whose every cell sits at the given elevation, so a creature anywhere
+    // samples a flat surface at that height.
+    private static MapData UniformHeightMap(float height, int size = 16)
+    {
+        var map = new MapData(size, size, 1f);
+        for (int cz = 0; cz < size; cz++)
+        for (int cx = 0; cx < size; cx++)
+            map.SetCell(cx, cz, new Cell { Terrain = Terrain.Grass, Height = height });
+        return map;
+    }
+
+    [Fact]
+    public void Surface_Blob_RidesRaisedTerrain()
+    {
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Map = UniformHeightMap(3f),
+        };
+        var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+
+        sim.Tick(0.1);
+
+        Assert.Equal(3f + blob.Traits.Radius, blob.Position.Y, 4);
+    }
+
+    [Fact]
+    public void Surface_Blob_FollowsTerrainDown()
+    {
+        // Below-zero terrain: a clamp-up-only floor would leave the blob floating at y=0;
+        // it must snap DOWN onto the surface.
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Map = UniformHeightMap(-2f),
+        };
+        var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+
+        sim.Tick(0.1);
+
+        Assert.Equal(-2f + blob.Traits.Radius, blob.Position.Y, 4);
+    }
+
+    [Fact]
+    public void Surface_NoMap_RestsOnArenaFloor()
+    {
+        var arena = Arena.GroundArena(16, 16); // Map null
+        var sim = new Simulator(arena, seed: 1);
+        var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+
+        sim.Tick(0.1);
+
+        Assert.Equal(arena.MinY + blob.Traits.Radius, blob.Position.Y, 4);
+    }
+
+    [Fact]
+    public void Surface_GravityCreature_LandsOnRaisedTerrain()
+    {
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Map = UniformHeightMap(3f),
+        };
+        // A falling creature started above the surface; WalkMode leaves Y to gravity.
+        var traits = new CreatureTraits { Radius = 0.5f, MaxSpeed = 0.6f, GravityScale = 1f };
+        var creature = sim.SpawnCreature(new Vector3(0, 10, 0), traits);
+
+        for (int i = 0; i < 100; i++)
+            sim.Tick(0.1);
+
+        Assert.Equal(3f + creature.Traits.Radius, creature.Position.Y, 3);
+    }
+
+    [Fact]
+    public void Surface_SameSeedAndMap_IsDeterministic()
+    {
+        static Simulator Run()
+        {
+            var sim = new Simulator(Arena.GroundArena(16, 16), seed: 7)
+            {
+                Map = UniformHeightMap(2.5f),
+            };
+            for (int i = 0; i < 5; i++)
+                sim.SpawnBlob(new Vector3(i - 2, 0, 0));
+            for (int t = 0; t < 50; t++)
+                sim.Tick(0.1);
+            return sim;
+        }
+
+        var a = Run();
+        var b = Run();
+
+        Assert.Equal(a.EntityCount, b.EntityCount);
+        for (int i = 0; i < a.EntityCount; i++)
+            Assert.Equal(a.Entities[i].Position, b.Entities[i].Position);
     }
 }

@@ -63,7 +63,7 @@ public sealed class MapGenerator
 
     /// <summary>
     /// Generate a map from the given config, biome catalog, and seed. Pipeline order:
-    /// AssignBiomes → SculptHeight → FloodWater → CarveLakes → SinkWater → ScatterRocks.
+    /// AssignBiomes → AssignDefaultTerrain → SculptHeight → FloodWater → CarveLakes → FillLakeIslands → SinkWater → ScatterRocks.
     /// </summary>
     public static MapData Generate(MapGenConfig config, BiomeCatalog biomes, int seed)
     {
@@ -74,9 +74,10 @@ public sealed class MapGenerator
         };
 
         // Draw biome seed points once — shared by AssignBiomes and SculptHeight.
+        // Forest is excluded from the default pool (not needed yet).
         var biomePool = config.BiomeNames is { Count: > 0 } set
             ? [.. set]
-            : Enum.GetValues<Biome>();
+            : new Biome[] { Biome.Plains, Biome.Desert, Biome.Wetland };
         int seedCount = Math.Max(1, config.BiomeSeedCount);
         var seeds = new BiomeSeed[seedCount];
         for (int i = 0; i < seedCount; i++)
@@ -84,9 +85,11 @@ public sealed class MapGenerator
                 biomePool[rng.Next(biomePool.Length)]);
 
         AssignBiomes(map, seeds);
+        AssignDefaultTerrain(map);
         SculptHeight(map, config, biomes, seeds, rng);
         FloodWater(map, config);
         CarveLakes(map, config, biomes, rng);
+        FillLakeIslands(map);
         SinkWater(map, config);
         ScatterRocks(map, config, biomes, rng);
 
@@ -94,7 +97,29 @@ public sealed class MapGenerator
     }
 
     /// <summary>
-    /// Pass 1: sculpt terrain elevation with per-biome offset and variation.
+    /// Pass 1: set each cell's default terrain from its biome.
+    /// Plains → Grass, Desert → Sand, Forest → Grass, Wetland → Marsh.
+    /// Later passes (FloodWater, CarveLakes, ScatterRocks) may overwrite
+    /// individual cells with Water or Rock.
+    /// </summary>
+    private static void AssignDefaultTerrain(MapData map)
+    {
+        for (int cz = 0; cz < map.Depth; cz++)
+        for (int cx = 0; cx < map.Width; cx++)
+        {
+            var cell = map.GetCell(cx, cz);
+            cell.Terrain = cell.Biome switch
+            {
+                Biome.Desert => Terrain.Sand,
+                Biome.Wetland => Terrain.Marsh,
+                _ => Terrain.Grass,
+            };
+            map.SetCell(cx, cz, cell);
+        }
+    }
+
+    /// <summary>
+    /// Pass 2: sculpt terrain elevation with per-biome offset and variation.
     /// One continuous <see cref="HeightNoise"/> field runs across the whole map; per-cell
     /// the nearest two biome seeds' <see cref="BiomeDef.HeightOffset"/> and
     /// <see cref="BiomeDef.HeightVariation"/> are distance-blended so boundaries slope
@@ -140,7 +165,7 @@ public sealed class MapGenerator
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;
 
     /// <summary>
-    /// Pass 2: flood low ground. Every cell whose <see cref="Cell.Height"/> is below
+    /// Pass 3: flood low ground. Every cell whose <see cref="Cell.Height"/> is below
     /// <see cref="MapGenConfig.SeaLevel"/> becomes <see cref="Terrain.Water"/>. The cell's
     /// height is left at its low value — that is the lakebed below the surface; the renderer
     /// draws a flat water plane at sea level on top, so basins read as genuinely below y=0.
@@ -179,7 +204,7 @@ public sealed class MapGenerator
     }
 
     /// <summary>
-    /// Pass 3: carve <see cref="MapGenConfig.LakeCount"/> lakes. Each lake picks a
+    /// Pass 4: carve <see cref="MapGenConfig.LakeCount"/> lakes. Each lake picks a
     /// random center cell; cells within <see cref="MapGenConfig.LakeRadius"/>
     /// (Euclidean, in cell units) become Water with probability equal to the cell's
     /// biome <see cref="BiomeDef.WaterChance"/> — so wet biomes flood and arid ones stay dry.
@@ -206,8 +231,12 @@ public sealed class MapGenerator
                     continue;
 
                 var cell = map.GetCell(cx, cz);
-                // Draw once per candidate cell (fixed order) so determinism holds.
-                if (rng.NextDouble() < biomes.Get(cell.Biome).WaterChance)
+                // Inner core is always water; outer ring uses biome probability.
+                // Always draw the RNG so seed progression stays deterministic.
+                float distFrac = radiusSq == 0 ? 0f : (float)(dx * dx + dz * dz) / radiusSq;
+                const float CoreFrac = 0.5f;
+                double roll = rng.NextDouble();
+                if (distFrac < CoreFrac * CoreFrac || roll < biomes.Get(cell.Biome).WaterChance)
                 {
                     cell.Terrain = Terrain.Water;
                     map.SetCell(cx, cz, cell);
@@ -217,7 +246,59 @@ public sealed class MapGenerator
     }
 
     /// <summary>
-    /// Pass 4: sink water cells into basins (pass 1 + convergent propagation).
+    /// Pass 5: flood-fill from all map-border cells (4-connected BFS) to identify every
+    /// non-water cell reachable from the border without crossing water. Any non-water cell
+    /// that is NOT reachable is completely enclosed by water (an interior island) and is
+    /// converted to <see cref="Terrain.Water"/> so it cannot protrude through the water
+    /// plane. Shoreline shape is unaffected; only fully enclosed holes are filled.
+    /// </summary>
+    private static void FillLakeIslands(MapData map)
+    {
+        bool[] reachable = new bool[map.Width * map.Depth];
+        var queue = new Queue<(int x, int z)>();
+
+        void Enqueue(int x, int z)
+        {
+            int idx = z * map.Width + x;
+            if (!reachable[idx] && map.GetCell(x, z).Terrain != Terrain.Water)
+            {
+                reachable[idx] = true;
+                queue.Enqueue((x, z));
+            }
+        }
+
+        for (int x = 0; x < map.Width; x++) { Enqueue(x, 0); Enqueue(x, map.Depth - 1); }
+        for (int z = 1; z < map.Depth - 1; z++) { Enqueue(0, z); Enqueue(map.Width - 1, z); }
+
+        int[] dx4 = { -1, 1,  0, 0 };
+        int[] dz4 = {  0, 0, -1, 1 };
+        while (queue.Count > 0)
+        {
+            var (cx, cz) = queue.Dequeue();
+            for (int d = 0; d < 4; d++)
+            {
+                int nx = cx + dx4[d], nz = cz + dz4[d];
+                if (map.InBounds(nx, nz)) Enqueue(nx, nz);
+            }
+        }
+
+        for (int cz = 0; cz < map.Depth; cz++)
+        for (int cx = 0; cx < map.Width; cx++)
+        {
+            if (!reachable[cz * map.Width + cx])
+            {
+                var cell = map.GetCell(cx, cz);
+                if (cell.Terrain != Terrain.Water)
+                {
+                    cell.Terrain = Terrain.Water;
+                    map.SetCell(cx, cz, cell);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pass 6: sink water cells into basins (pass 1 + convergent propagation).
     /// Pass 1 — every <see cref="Terrain.Water"/> cell is lowered to at most
     /// <c>WaterDepth</c> below its lowest adjacent non-water cell (shore). Interior
     /// cells with no dry neighbor sink relative to their own height. Heights are read
@@ -320,7 +401,7 @@ public sealed class MapGenerator
     }
 
     /// <summary>
-    /// Pass 5: scatter <see cref="MapGenConfig.RockClusters"/> rock clusters. Each
+    /// Pass 7: scatter <see cref="MapGenConfig.RockClusters"/> rock clusters. Each
     /// cluster starts at a random cell and does a random walk of
     /// <see cref="MapGenConfig.RockClusterSize"/> steps. A visited cell becomes Rock
     /// only if it is currently Grass (never overwriting Water) and a per-cell roll
@@ -338,7 +419,7 @@ public sealed class MapGenerator
                 if (map.InBounds(cx, cz))
                 {
                     var cell = map.GetCell(cx, cz);
-                    if (cell.Terrain == Terrain.Grass
+                    if ((cell.Terrain is Terrain.Grass or Terrain.Sand or Terrain.Marsh)
                         && rng.NextDouble() < biomes.Get(cell.Biome).RockChance)
                     {
                         cell.Terrain = Terrain.Rock;

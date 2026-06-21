@@ -129,9 +129,12 @@ public sealed class Simulator
     /// Pipeline (applied uniformly to every creature):
     ///   1. Apply gravity (scaled by creature's GravityScale)
     ///   2. Movement tick (wander / AI / wall bounce)
-    ///   3. Ground clamp (falling through floor → clamp + zero Y velocity)
+    ///   3. Ground placement — terrain-bound creatures (GravityScale 0) snap to the
+    ///      surface under them; gravity creatures clamp up if they fell through it.
+    ///      The surface is <see cref="MapData.HeightAt"/> when a map is set, else the
+    ///      flat arena floor.
     ///   4. Resolve entity-entity collisions (sphere-sphere push-apart)
-    ///   5. Post-collision ground re-clamp (collision may push below floor)
+    ///   5. Post-collision ground re-placement (collision may push off the surface)
     /// </summary>
     public void Tick(double delta)
     {
@@ -150,10 +153,18 @@ public sealed class Simulator
             // 2b. Biome effects (happiness, speed) if a map + catalog are present
             ApplyBiomeEffects(entity, delta);
 
-            // 3. Ground clamp — prevent falling through the floor
-            float floor = Arena.MinY + entity.Traits.Radius;
-            if (entity.Position.Y < floor)
+            // 3. Ground placement — rest the entity on the terrain surface under it.
+            float floor = GroundFloor(entity.Position) + entity.Traits.Radius;
+            if (entity.Traits.GravityScale == 0f)
             {
+                // Terrain-bound (no gravity): hug the surface going up AND down.
+                if (entity.Position.Y != floor)
+                    entity.Position = new Vector3(
+                        entity.Position.X, floor, entity.Position.Z);
+            }
+            else if (entity.Position.Y < floor)
+            {
+                // Gravity-driven: stop the fall at the surface.
                 entity.Position = new Vector3(
                     entity.Position.X, floor, entity.Position.Z);
                 entity.Velocity = new Vector3(
@@ -164,14 +175,27 @@ public sealed class Simulator
         // --- Entity collision ---
         ResolveEntityCollisions();
 
-        // --- Post-collision ground re-clamp ---
+        // --- Post-collision ground re-placement ---
         foreach (var entity in Entities)
         {
-            float floor = Arena.MinY + entity.Traits.Radius;
-            if (entity.Position.Y < floor)
+            float floor = GroundFloor(entity.Position) + entity.Traits.Radius;
+            if (entity.Traits.GravityScale == 0f)
+            {
+                if (entity.Position.Y != floor)
+                    entity.Position = new Vector3(entity.Position.X, floor, entity.Position.Z);
+            }
+            else if (entity.Position.Y < floor)
                 entity.Position = new Vector3(entity.Position.X, floor, entity.Position.Z);
         }
     }
+
+    /// <summary>
+    /// Resting ground height under a world position: the baked terrain surface
+    /// (<see cref="MapData.HeightAt"/>) when a <see cref="Map"/> is present, else the flat
+    /// arena floor. Reads position only — no randomness — so the sim stays deterministic.
+    /// </summary>
+    private float GroundFloor(Vector3 pos)
+        => Map is not null ? Map.HeightAt(pos) : Arena.MinY;
 
     /// <summary>
     /// Apply the effects of the biome under a creature for this tick: accumulate
