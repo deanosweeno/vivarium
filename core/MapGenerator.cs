@@ -18,6 +18,41 @@ namespace Vivarium.Core;
 /// </summary>
 public sealed class MapGenerator
 {
+    private record struct BiomeSeed(int X, int Z, Biome Biome);
+
+    /// <summary>
+    /// Find the two closest seed points to cell (cx, cz) by distance-squared.
+    /// Used by both AssignBiomes (best index) and SculptHeight (best+second for boundary blend).
+    /// </summary>
+    private static (int best, int second) NearestSeeds(BiomeSeed[] seeds, int cx, int cz)
+    {
+        int best = 0;
+        int second = 0;
+        long bestDist = long.MaxValue;
+        long secondDist = long.MaxValue;
+
+        for (int i = 0; i < seeds.Length; i++)
+        {
+            long dx = cx - seeds[i].X;
+            long dz = cz - seeds[i].Z;
+            long dist = dx * dx + dz * dz;
+
+            if (dist < bestDist)
+            {
+                second = best;
+                secondDist = bestDist;
+                best = i;
+                bestDist = dist;
+            }
+            else if (dist < secondDist)
+            {
+                second = i;
+                secondDist = dist;
+            }
+        }
+
+        return (best, second);
+    }
     /// <summary>
     /// Generate a map using a neutral (empty) biome catalog — every biome behaves
     /// at baseline weights. Convenience overload for callers that don't supply data
@@ -28,7 +63,7 @@ public sealed class MapGenerator
 
     /// <summary>
     /// Generate a map from the given config, biome catalog, and seed. Pipeline order:
-    /// all-Grass/all-Plains map → AssignBiomes → CarveLake → ScatterRocks.
+    /// AssignBiomes → SculptHeight → FloodWater → CarveLakes → ScatterRocks.
     /// </summary>
     public static MapData Generate(MapGenConfig config, BiomeCatalog biomes, int seed)
     {
@@ -38,9 +73,19 @@ public sealed class MapGenerator
             SeaLevel = config.SeaLevel,
         };
 
-        SculptHeight(map, config, rng);
+        // Draw biome seed points once — shared by AssignBiomes and SculptHeight.
+        var biomePool = config.BiomeNames is { Count: > 0 } set
+            ? [.. set]
+            : Enum.GetValues<Biome>();
+        int seedCount = Math.Max(1, config.BiomeSeedCount);
+        var seeds = new BiomeSeed[seedCount];
+        for (int i = 0; i < seedCount; i++)
+            seeds[i] = new BiomeSeed(rng.Next(map.Width), rng.Next(map.Depth),
+                biomePool[rng.Next(biomePool.Length)]);
+
+        AssignBiomes(map, seeds);
+        SculptHeight(map, config, biomes, seeds, rng);
         FloodWater(map, config);
-        AssignBiomes(map, config, rng);
         CarveLakes(map, config, biomes, rng);
         ScatterRocks(map, config, biomes, rng);
 
@@ -48,23 +93,42 @@ public sealed class MapGenerator
     }
 
     /// <summary>
-    /// Pass 0a: sculpt terrain elevation. Samples a deterministic <see cref="HeightNoise"/>
-    /// (seeded from the shared <paramref name="rng"/>) per cell and writes
-    /// <see cref="Cell.Height"/> mapped to roughly <c>[-HeightAmplitude, +HeightAmplitude]</c>,
-    /// so the surface rolls above and below <c>y=0</c>. Runs first; later passes read it.
+    /// Pass 1: sculpt terrain elevation with per-biome offset and variation.
+    /// One continuous <see cref="HeightNoise"/> field runs across the whole map; per-cell
+    /// the nearest two biome seeds' <see cref="BiomeDef.HeightOffset"/> and
+    /// <see cref="BiomeDef.HeightVariation"/> are distance-blended so boundaries slope
+    /// smoothly instead of forming cliffs.
     /// </summary>
-    private static void SculptHeight(MapData map, MapGenConfig config, Random rng)
+    private static void SculptHeight(MapData map, MapGenConfig config, BiomeCatalog biomes,
+        BiomeSeed[] seeds, Random rng)
     {
-        // Draw the noise seed from the shared rng so the whole map stays one deterministic stream.
         var noise = new HeightNoise(rng.Next());
         float invScale = 1f / Math.Max(0.0001f, config.HeightScale);
 
         for (int cz = 0; cz < map.Depth; cz++)
         for (int cx = 0; cx < map.Width; cx++)
         {
-            // fBm in [0,1] → centered to [-1,1] → scaled to amplitude.
+            // Base noise sample — same continuous field everywhere.
             float n = noise.Fbm(cx * invScale, cz * invScale, config.HeightOctaves);
-            float height = (n * 2f - 1f) * config.HeightAmplitude;
+
+            // Blend the two nearest biomes' offset and variation.
+            var (best, second) = NearestSeeds(seeds, cx, cz);
+            var def1 = biomes.Get(seeds[best].Biome);
+            var def2 = biomes.Get(seeds[second].Biome);
+
+            long dx1 = cx - seeds[best].X;
+            long dz1 = cz - seeds[best].Z;
+            float d1 = MathF.Sqrt(dx1 * dx1 + dz1 * dz1);
+
+            long dx2 = cx - seeds[second].X;
+            long dz2 = cz - seeds[second].Z;
+            float d2 = MathF.Sqrt(dx2 * dx2 + dz2 * dz2);
+
+            float t = d1 + d2 > 0.0001f ? d1 / (d1 + d2) : 0f;
+            float offset = Lerp(def1.HeightOffset, def2.HeightOffset, t);
+            float variation = Lerp(def1.HeightVariation, def2.HeightVariation, t);
+
+            float height = ((n * 2f - 1f) * config.HeightAmplitude * variation) + offset;
 
             var cell = map.GetCell(cx, cz);
             cell.Height = height;
@@ -72,8 +136,10 @@ public sealed class MapGenerator
         }
     }
 
+    private static float Lerp(float a, float b, float t) => a + (b - a) * t;
+
     /// <summary>
-    /// Pass 0b: flood low ground. Every cell whose <see cref="Cell.Height"/> is below
+    /// Pass 2: flood low ground. Every cell whose <see cref="Cell.Height"/> is below
     /// <see cref="MapGenConfig.SeaLevel"/> becomes <see cref="Terrain.Water"/>. The cell's
     /// height is left at its low value — that is the lakebed below the surface; the renderer
     /// draws a flat water plane at sea level on top, so basins read as genuinely below y=0.
@@ -99,48 +165,20 @@ public sealed class MapGenerator
     /// (Voronoi). Scatter <see cref="MapGenConfig.BiomeSeedCount"/> seed points, each
     /// assigned a random biome; every cell takes the biome of its nearest seed.
     /// </summary>
-    private static void AssignBiomes(MapData map, MapGenConfig config, Random rng)
+    private static void AssignBiomes(MapData map, BiomeSeed[] seeds)
     {
-        var biomePool = config.BiomeNames is { Count: > 0 } set
-            ? [.. set]
-            : Enum.GetValues<Biome>();
-        int seedCount = Math.Max(1, config.BiomeSeedCount);
-
-        var seedX = new int[seedCount];
-        var seedZ = new int[seedCount];
-        var seedBiome = new Biome[seedCount];
-        for (int i = 0; i < seedCount; i++)
-        {
-            seedX[i] = rng.Next(map.Width);
-            seedZ[i] = rng.Next(map.Depth);
-            seedBiome[i] = biomePool[rng.Next(biomePool.Length)];
-        }
-
         for (int cz = 0; cz < map.Depth; cz++)
         for (int cx = 0; cx < map.Width; cx++)
         {
-            int best = 0;
-            long bestDistSq = long.MaxValue;
-            for (int i = 0; i < seedCount; i++)
-            {
-                long dx = cx - seedX[i];
-                long dz = cz - seedZ[i];
-                long distSq = dx * dx + dz * dz;
-                if (distSq < bestDistSq)
-                {
-                    bestDistSq = distSq;
-                    best = i;
-                }
-            }
-
+            var (best, _) = NearestSeeds(seeds, cx, cz);
             var cell = map.GetCell(cx, cz);
-            cell.Biome = seedBiome[best];
+            cell.Biome = seeds[best].Biome;
             map.SetCell(cx, cz, cell);
         }
     }
 
     /// <summary>
-    /// Pass 1: carve <see cref="MapGenConfig.LakeCount"/> lakes. Each lake picks a
+    /// Pass 3: carve <see cref="MapGenConfig.LakeCount"/> lakes. Each lake picks a
     /// random center cell; cells within <see cref="MapGenConfig.LakeRadius"/>
     /// (Euclidean, in cell units) become Water with probability equal to the cell's
     /// biome <see cref="BiomeDef.WaterChance"/> — so wet biomes flood and arid ones stay dry.
@@ -178,7 +216,7 @@ public sealed class MapGenerator
     }
 
     /// <summary>
-    /// Pass 2: scatter <see cref="MapGenConfig.RockClusters"/> rock clusters. Each
+    /// Pass 4: scatter <see cref="MapGenConfig.RockClusters"/> rock clusters. Each
     /// cluster starts at a random cell and does a random walk of
     /// <see cref="MapGenConfig.RockClusterSize"/> steps. A visited cell becomes Rock
     /// only if it is currently Grass (never overwriting Water) and a per-cell roll

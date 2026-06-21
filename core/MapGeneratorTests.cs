@@ -268,4 +268,124 @@ public class MapGeneratorTests
                 Assert.Equal(Terrain.Water, cell.Terrain);
         }
     }
+
+    [Fact]
+    public void Generate_RespectsBiomeHeightOffset()
+    {
+        var biomes = BiomeCatalog.Parse("""
+            [
+              { "Biome": "Plains", "HeightOffset": 3.0, "HeightVariation": 0.3 },
+              { "Biome": "Desert", "HeightOffset": -3.0, "HeightVariation": 0.5 }
+            ]
+            """);
+        var config = new MapGenConfig
+        {
+            Width = 32, Depth = 32, CellSize = 1f,
+            LakeCount = 1, LakeRadius = 5,
+            RockClusters = 8, RockClusterSize = 5,
+            BiomeSeedCount = 4,
+            HeightAmplitude = 1f, // keep noise small so offset dominates
+            SeaLevel = -1000f, // no flooding — test pure height
+        };
+        var map = MapGenerator.Generate(config, biomes, 42);
+
+        float plainsMean = 0f, desertMean = 0f;
+        int plainsCount = 0, desertCount = 0;
+        for (int cz = 0; cz < map.Depth; cz++)
+        for (int cx = 0; cx < map.Width; cx++)
+        {
+            var cell = map.GetCell(cx, cz);
+            if (cell.Biome == Biome.Plains) { plainsMean += cell.Height; plainsCount++; }
+            if (cell.Biome == Biome.Desert) { desertMean += cell.Height; desertCount++; }
+        }
+        plainsMean /= plainsCount;
+        desertMean /= desertCount;
+
+        Assert.True(plainsCount > 0, "expected Plains cells");
+        Assert.True(desertCount > 0, "expected Desert cells");
+        Assert.True(plainsMean > desertMean + 1.0f,
+            $"Plains mean {plainsMean:0.00} should be higher than Desert mean {desertMean:0.00}");
+    }
+
+    [Fact]
+    public void Generate_HeightVariationZero_IsFlat()
+    {
+        var biomes = BiomeCatalog.Parse("""
+            [ { "Biome": "Plains", "HeightVariation": 0.0 } ]
+            """);
+        var config = new MapGenConfig
+        {
+            Width = 16, Depth = 16, CellSize = 1f,
+            LakeCount = 0,
+            RockClusters = 0, RockClusterSize = 0,
+            BiomeNames = new HashSet<Biome> { Biome.Plains },
+        };
+        var map = MapGenerator.Generate(config, biomes, 7);
+
+        float first = map.GetCell(0, 0).Height;
+        for (int cz = 0; cz < map.Depth; cz++)
+        for (int cx = 0; cx < map.Width; cx++)
+            Assert.Equal(first, map.GetCell(cx, cz).Height, 3);
+    }
+
+    [Fact]
+    public void Generate_WithNeutralCatalog_HeightsStillSpanBothSigns()
+    {
+        // Default catalog: offset=0, variation=1 — same as old behavior.
+        var map = MapGenerator.Generate(SmallConfig(), 42);
+
+        float min = float.MaxValue, max = float.MinValue;
+        for (int cz = 0; cz < map.Depth; cz++)
+        for (int cx = 0; cx < map.Width; cx++)
+        {
+            float h = map.GetCell(cx, cz).Height;
+            min = MathF.Min(min, h);
+            max = MathF.Max(max, h);
+        }
+
+        Assert.True(min < 0f, $"expected some terrain below sea level (min was {min})");
+        Assert.True(max > 0f, $"expected some terrain above sea level (max was {max})");
+    }
+
+    [Fact]
+    public void Generate_BoundaryBlend_NoCliffs()
+    {
+        var biomes = BiomeCatalog.Parse("""
+            [
+              { "Biome": "Plains", "HeightOffset": 2.0, "HeightVariation": 0.0 },
+              { "Biome": "Desert", "HeightOffset": -2.0, "HeightVariation": 0.0 }
+            ]
+            """);
+        // Variation=0 and SeaLevel ridiculously low so only offsets matter — the blend
+        // should produce intermediate heights between +2 and −2 near boundaries.
+        var config = new MapGenConfig
+        {
+            Width = 32, Depth = 32, CellSize = 1f,
+            LakeCount = 0,
+            RockClusters = 0, RockClusterSize = 0,
+            BiomeSeedCount = 3,
+            SeaLevel = -1000f,
+        };
+        var map = MapGenerator.Generate(config, biomes, 42);
+
+        // Verify that adjacent cells across biome boundaries don't have the full
+        // 4-unit cliff (−2 → +2). At least one pair of neighbours where biomes differ
+        // should differ by less than |offset1 − offset2| = 4.
+        float fullJump = 4.0f; // |2 − (−2)|
+        bool foundBlended = false;
+        for (int cz = 0; cz < map.Depth - 1; cz++)
+        for (int cx = 0; cx < map.Width - 1; cx++)
+        {
+            var a = map.GetCell(cx, cz);
+            var b = map.GetCell(cx + 1, cz);
+            if (a.Biome != b.Biome)
+            {
+                float delta = MathF.Abs(a.Height - b.Height);
+                if (delta < fullJump * 0.95f) // must be noticeably less than full jump
+                    foundBlended = true;
+            }
+        }
+        Assert.True(foundBlended,
+            "Expected at least one adjacent pair across a biome boundary to have blended height (delta < full offset jump)");
+    }
 }

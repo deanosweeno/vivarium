@@ -106,6 +106,8 @@ error exit listing the valid biomes.
 | `--heightscale <float>` | 24 | noise feature size (cells between hilltops) |
 | `--octaves <int>` | 4 | fBm height detail octaves |
 | `--sealevel <float>` | 0 | water line; cells below it flood to Water |
+| `--height-offsets <kv>` | *(none)* | per-biome height offsets, e.g. `Plains=1.0,Desert=-1.0` |
+| `--height-variations <kv>` | *(none)* | per-biome height variation, e.g. `Plains=0.3,Desert=0.5` |
 
 Every flag maps 1:1 to a property on `MapGenConfig`. Adding a flag is step 3 of §5 below.
 
@@ -123,11 +125,12 @@ Every flag maps 1:1 to a property on `MapGenConfig`. Adding a flag is step 3 of 
 Generate(config, biomes, seed)
    var rng = new Random(seed)
    map = new MapData(all Grass, all Plains, Height 0)
-   ├─ SculptHeight(map, config, rng)        write Cell.Height (value-noise + fBm)
-   ├─ FloodWater(map, config)               Height < SeaLevel → Water (lakebed kept low)
-   ├─ AssignBiomes(map, config, rng)        Voronoi regions → Cell.Biome
-   ├─ CarveLakes(map, config, biomes, rng)  Grass → Water (biome-weighted ponds)
-   └─ ScatterRocks(map, config, biomes, rng)Grass → Rock  (never overwrites Water)
+   ├─ AssignBiomes(map, seeds)               Voronoi nearest-seed → Cell.Biome
+   ├─ SculptHeight(map, config, biomes,       fBm noise + per-biome offset/variation → Cell.Height
+   │                 seeds, rng)
+   ├─ FloodWater(map, config)                 Height < SeaLevel → Water
+   ├─ CarveLakes(map, config, biomes, rng)    Grass → Water (biome-weighted ponds)
+   └─ ScatterRocks(map, config, biomes, rng)  Grass → Rock  (never overwrites Water)
    return map
 ```
 

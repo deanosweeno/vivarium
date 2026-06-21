@@ -385,16 +385,21 @@ to the edge outside the grid). "What height is the ground here" is defined in ex
 place, so the renderer and any future surface-walking sim read the same smooth surface.
 
 **Generation (`core/MapGenerator.cs`, `core/HeightNoise.cs`):**
-- `SculptHeight` runs **first** — it samples `HeightNoise` (a pure, deterministic
-  value-noise + fBm helper, seeded from the shared `rng`; its own unit so the shape
-  algorithm is testable/swappable) and writes each cell's height into
-  `[-HeightAmplitude, +HeightAmplitude]`.
+- `AssignBiomes` runs **first** — partitions the grid into Voronoi biome regions.
+- `SculptHeight` then samples `HeightNoise` (a pure, deterministic value-noise + fBm
+  helper, seeded from the shared `rng`; its own unit so the shape algorithm is
+  testable/swappable). Per cell, the two nearest biome seeds' `HeightOffset` and
+  `HeightVariation` (from `BiomeDef`, loaded via `BiomeCatalog`) are distance-blended,
+  so boundaries slope smoothly. The final height is
+  `((noise × 2 − 1) × HeightAmplitude × variation) + offset`.
 - `FloodWater` then turns every cell below `SeaLevel` into `Terrain.Water`, leaving the cell
   height at its low value (the lakebed). This is the **primary** water source; the existing
   biome-weighted `CarveLakes` only adds extra ponds on remaining grass.
 - Tunables live in `MapGenConfig` (`HeightAmplitude`, `HeightScale`, `HeightOctaves`,
-  `SeaLevel`) — global hill shape. (A per-biome amplitude could later move into `BiomeDef`
-  for a "Mountains" biome — data-only — but is not implemented.)
+  `SeaLevel`) for global hill shape, plus `BiomeDef.HeightOffset` and
+  `BiomeDef.HeightVariation` for per-biome elevation and roughness. The biome values
+  live in `assets/biomes.json` and can be tuned per-biome or overridden at the CLI
+  (`--height-offsets`, `--height-variations`).
 
 **Presentation (`scripts/MapView.cs`):** builds **one** smooth ground mesh (an `ArrayMesh`
 via `SurfaceTool`): a vertex per cell center lifted to its height, joined into quads, with

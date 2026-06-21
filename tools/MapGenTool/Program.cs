@@ -25,6 +25,8 @@ using Vivarium.Core;
 //   --heightscale <float> noise feature size in cells (default 24)
 //   --octaves <int>     fBm height detail octaves (default 4)
 //   --sealevel <float>  water line; cells below it flood (default 0)
+//   --height-offsets <kv>     per-biome height offsets, e.g. "Plains=1.0,Desert=-1.0"
+//   --height-variations <kv>  per-biome height variation, e.g. "Plains=0.3,Desert=0.5"
 
 var args2 = ParseArgs(args);
 
@@ -65,6 +67,14 @@ if (config.BiomeNames is { Count: > 0 } set)
 {
     var names = string.Join(", ", set.OrderBy(b => (int)b).Select(b => b.ToString()));
     Console.WriteLine($"Biome filter active: {names}.");
+}
+
+var heightOffsets = ParseBiomeFloatDict(args2, "height-offsets");
+var heightVariations = ParseBiomeFloatDict(args2, "height-variations");
+if (heightOffsets is { Count: > 0 } || heightVariations is { Count: > 0 })
+{
+    biomes = biomes.WithOverrides(offsets: heightOffsets, variations: heightVariations);
+    PrintHeightOverrides(heightOffsets, heightVariations);
 }
 
 var map = MapGenerator.Generate(config, biomes, seed);
@@ -141,6 +151,57 @@ static HashSet<Biome>? ParseBiomeNames(Dictionary<string, string> args)
     }
 
     return set.Count > 0 ? set : null;
+}
+
+/// <summary>
+/// Parse a comma-separated "Biome=value" list (e.g. "Plains=1.0,Desert=-1.0").
+/// Returns null when the flag is absent. Exits with error on unknown biome or invalid float.
+/// </summary>
+static Dictionary<Biome, float>? ParseBiomeFloatDict(Dictionary<string, string> args, string key)
+{
+    if (!args.TryGetValue(key, out var raw) || string.IsNullOrWhiteSpace(raw))
+        return null;
+
+    var dict = new Dictionary<Biome, float>();
+    var allNames = string.Join(", ", Enum.GetNames<Biome>());
+    foreach (var part in raw.Split(','))
+    {
+        var eq = part.IndexOf('=');
+        if (eq < 0)
+        {
+            Console.Error.WriteLine($"Expected 'Biome=value' format for --{key}, got '{part.Trim()}'.");
+            Environment.Exit(1);
+        }
+        var name = part[..eq].Trim();
+        var valStr = part[(eq + 1)..].Trim();
+
+        if (!Enum.TryParse<Biome>(name, ignoreCase: true, out var b))
+        {
+            Console.Error.WriteLine($"Unknown biome '{name}' in --{key}. Valid biomes: {allNames}.");
+            Environment.Exit(1);
+        }
+        if (!float.TryParse(valStr, System.Globalization.CultureInfo.InvariantCulture, out var v))
+        {
+            Console.Error.WriteLine($"Invalid float '{valStr}' for {name} in --{key}.");
+            Environment.Exit(1);
+        }
+        dict[b] = v;
+    }
+
+    return dict.Count > 0 ? dict : null;
+}
+
+static void PrintHeightOverrides(Dictionary<Biome, float>? offsets, Dictionary<Biome, float>? variations)
+{
+    var parts = new List<string>();
+    if (offsets is { Count: > 0 })
+        foreach (var (b, v) in offsets.OrderBy(kv => (int)kv.Key))
+            parts.Add($"{b}+{v:0.00}");
+    if (variations is { Count: > 0 })
+        foreach (var (b, v) in variations.OrderBy(kv => (int)kv.Key))
+            parts.Add($"{b}×{v:0.00}");
+    if (parts.Count > 0)
+        Console.WriteLine($"Height overrides active: {string.Join(", ", parts)}.");
 }
 
 // Downsampled ASCII preview so large maps fit the terminal.

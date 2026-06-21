@@ -54,6 +54,8 @@ public sealed class BiomeCatalog
                 HappinessRate = dto.HappinessRate ?? fallback.HappinessRate,
                 SpeedMultiplier = dto.SpeedMultiplier ?? fallback.SpeedMultiplier,
                 TintHex = dto.TintHex ?? fallback.TintHex,
+                HeightOffset = dto.HeightOffset ?? fallback.HeightOffset,
+                HeightVariation = dto.HeightVariation ?? fallback.HeightVariation,
             };
         }
 
@@ -76,6 +78,63 @@ public sealed class BiomeCatalog
     public BiomeDef Get(Biome biome)
         => _defs.TryGetValue(biome, out var def) ? def : BiomeDef.Neutral(biome);
 
+    /// <summary>
+    /// Create a new catalog with per-biome height overrides applied on top of the
+    /// current definitions. Both parameters are optional — pass only the ones you
+    /// need. The original catalog is unchanged (immutable pattern).
+    /// </summary>
+    public BiomeCatalog WithOverrides(
+        Dictionary<Biome, float>? offsets = null,
+        Dictionary<Biome, float>? variations = null)
+    {
+        var newDefs = new Dictionary<Biome, BiomeDef>(_defs);
+
+        if (offsets is { Count: > 0 })
+        {
+            foreach (var (biome, offset) in offsets)
+            {
+                var existing = Get(biome);
+                newDefs[biome] = new BiomeDef
+                {
+                    Biome = biome,
+                    Name = existing.Name,
+                    WaterChance = existing.WaterChance,
+                    RockChance = existing.RockChance,
+                    FoodChance = existing.FoodChance,
+                    HappinessRate = existing.HappinessRate,
+                    SpeedMultiplier = existing.SpeedMultiplier,
+                    TintHex = existing.TintHex,
+                    HeightOffset = offset,
+                    HeightVariation = existing.HeightVariation,
+                };
+            }
+        }
+
+        if (variations is { Count: > 0 })
+        {
+            foreach (var (biome, variation) in variations)
+            {
+                var existing = Get(biome);
+                newDefs[biome] = new BiomeDef
+                {
+                    Biome = biome,
+                    Name = existing.Name,
+                    WaterChance = existing.WaterChance,
+                    RockChance = existing.RockChance,
+                    FoodChance = existing.FoodChance,
+                    HappinessRate = existing.HappinessRate,
+                    SpeedMultiplier = existing.SpeedMultiplier,
+                    TintHex = existing.TintHex,
+                    HeightOffset = offsets is { Count: > 0 } && offsets.TryGetValue(biome, out var o)
+                        ? o : existing.HeightOffset,
+                    HeightVariation = variation,
+                };
+            }
+        }
+
+        return new BiomeCatalog(newDefs);
+    }
+
     // Nullable fields so "absent in JSON" is distinguishable from "present as 0",
     // letting missing fields fall back to BiomeDef defaults (forward-compatible).
     private sealed class BiomeDto
@@ -88,5 +147,7 @@ public sealed class BiomeCatalog
         public float? HappinessRate { get; set; }
         public float? SpeedMultiplier { get; set; }
         public string? TintHex { get; set; }
+        public float? HeightOffset { get; set; }
+        public float? HeightVariation { get; set; }
     }
 }

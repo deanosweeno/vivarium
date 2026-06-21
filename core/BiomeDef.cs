@@ -33,6 +33,12 @@ public sealed class BiomeDef
     /// <summary>Relative weight for placing Food in this region. 0 = never, 1 = baseline.</summary>
     public float FoodChance { get; init; } = 0f;
 
+    /// <summary>World-unit baseline added to sculpted elevation. Positive = higher (plateau), negative = lower (basin).</summary>
+    public float HeightOffset { get; init; } = 0f;
+
+    /// <summary>Multiplier on noise amplitude. 1.0 = full hills, 0.0 = perfectly flat.</summary>
+    public float HeightVariation { get; init; } = 1f;
+
     // --- runtime effects (read by Simulator) ---
 
     /// <summary>Happiness gained (or lost, if negative) per second a creature spends here.</summary>
