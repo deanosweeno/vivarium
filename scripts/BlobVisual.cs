@@ -45,7 +45,7 @@ public partial class BlobVisual : Node3D
         if (_model == null || _cube == null) return;
 
         // Set world position (model Y is vertical, add 0.5 so cube sits above model origin)
-        Position = new Vector3(_model.Position.X, _model.Position.Y + 0.5f, _model.Position.Z);
+        Position = new Vector3(_model.Position.X, _model.Position.Y, _model.Position.Z);
 
         // Apply pastel color
         _material.AlbedoColor = new Color(_model.R, _model.G, _model.B);
