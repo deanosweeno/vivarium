@@ -217,15 +217,16 @@ public sealed class MapGenerator
     }
 
     /// <summary>
-    /// Pass 4: sink water cells into basins (two-pass).
+    /// Pass 4: sink water cells into basins (pass 1 + convergent propagation).
     /// Pass 1 — every <see cref="Terrain.Water"/> cell is lowered to at most
     /// <c>WaterDepth</c> below its lowest adjacent non-water cell (shore). Interior
     /// cells with no dry neighbor sink relative to their own height. Heights are read
     /// from a pre-pass snapshot for order-independence.
-    /// Pass 2 — a second snapshot is taken after pass 1, then every Water cell is
-    /// lowered to at most its lowest neighbor height (water or land). This propagates
-    /// the shore depression inward so no water cell sits higher than any water neighbor,
-    /// eliminating the reverse-slope ripple artifact.
+    /// Pass 2+ — the shore depression is propagated inward iteratively. Each iteration
+    /// snapshots the current heights, then every Water cell is lowered to at most its
+    /// lowest neighbor height (water or land). The loop repeats until no cell changes,
+    /// so the depression reaches every cell in the basin regardless of lake width.
+    /// Heights only move downward and a 1e-7 epsilon guards float oscillation.
     /// Both passes read height only and draw no randomness; determinism is unaffected.
     /// </summary>
     private static void SinkWater(MapData map, MapGenConfig config)
@@ -267,33 +268,42 @@ public sealed class MapGenerator
             map.SetCell(cx, cz, cell);
         }
 
-        // Pass 2: propagate depression inward so no water cell sits higher than
-        // any of its water neighbors. This eliminates the reverse-slope artifact
-        // where a shore-adjacent cell (sunk to shore - WaterDepth) ended up
-        // deeper than its interior neighbor (sunk to self - WaterDepth in pass 1).
-        var pass1 = SnapshotHeights(map);
-        for (int cz = 0; cz < map.Depth; cz++)
-        for (int cx = 0; cx < map.Width; cx++)
+        // Pass 2+: propagate depression inward until no water cell changes.
+        // Each iteration snapshots current heights so propagation is order-independent.
+        bool changed;
+        do
         {
-            var cell = map.GetCell(cx, cz);
-            if (cell.Terrain != Terrain.Water)
-                continue;
-
-            float minNeighbor = float.MaxValue;
-            for (int dz = -1; dz <= 1; dz++)
-            for (int dx = -1; dx <= 1; dx++)
+            changed = false;
+            var snap = SnapshotHeights(map);
+            for (int cz = 0; cz < map.Depth; cz++)
+            for (int cx = 0; cx < map.Width; cx++)
             {
-                if (dx == 0 && dz == 0)
+                var cell = map.GetCell(cx, cz);
+                if (cell.Terrain != Terrain.Water)
                     continue;
-                int nx = cx + dx;
-                int nz = cz + dz;
-                if (!map.InBounds(nx, nz))
-                    continue;
-                minNeighbor = MathF.Min(minNeighbor, pass1[nz * map.Width + nx]);
+
+                float minNeighbor = float.MaxValue;
+                for (int dz = -1; dz <= 1; dz++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (dx == 0 && dz == 0)
+                        continue;
+                    int nx = cx + dx;
+                    int nz = cz + dz;
+                    if (!map.InBounds(nx, nz))
+                        continue;
+                    minNeighbor = MathF.Min(minNeighbor, snap[nz * map.Width + nx]);
+                }
+                float newHeight = MathF.Min(cell.Height, minNeighbor);
+                // 1e-7 epsilon prevents float-oscillation infinite loops.
+                if (newHeight < cell.Height - 1e-7f)
+                {
+                    cell.Height = newHeight;
+                    map.SetCell(cx, cz, cell);
+                    changed = true;
+                }
             }
-            cell.Height = MathF.Min(cell.Height, minNeighbor);
-            map.SetCell(cx, cz, cell);
-        }
+        } while (changed);
     }
 
     /// <summary>
