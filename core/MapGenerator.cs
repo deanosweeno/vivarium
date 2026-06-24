@@ -20,22 +20,101 @@ public sealed class MapGenerator
 {
     private record struct BiomeSeed(int X, int Z, Biome Biome);
 
+    /// <summary>Number of nearest already-placed seeds checked for adjacency constraints.</summary>
+    private const int AdjacencyNeighbors = 3;
+
     /// <summary>
-    /// Find the two closest seed points to cell (cx, cz) by distance-squared.
+    /// A domain-warp field: displaces a cell's (x, z) by the sum of a broad low-frequency
+    /// warp and a fine high-frequency jitter, both fBm noise. Applied before the nearest-seed
+    /// lookup so biome boundaries read as organic curves instead of straight Voronoi edges.
+    /// Sampling at decorrelated coordinates keeps the x and z displacements independent.
+    /// </summary>
+    private sealed class BiomeWarp
+    {
+        private readonly HeightNoise _warp;
+        private readonly HeightNoise _jitter;
+        private readonly float _warpAmp, _warpInvScale, _jitterAmp, _jitterInvScale;
+        private readonly int _octaves;
+
+        public BiomeWarp(MapGenConfig config, HeightNoise warp, HeightNoise jitter)
+        {
+            _warp = warp;
+            _jitter = jitter;
+            _warpAmp = config.BiomeWarpAmp;
+            _warpInvScale = 1f / Math.Max(0.0001f, config.BiomeWarpScale);
+            _jitterAmp = config.BiomeJitterAmp;
+            _jitterInvScale = 1f / Math.Max(0.0001f, config.BiomeJitterScale);
+            _octaves = config.BiomeWarpOctaves;
+        }
+
+        public (float x, float z) Apply(int cx, int cz)
+        {
+            // Offset the z-samples into a different region of the field so dx ≠ dz.
+            float dx = _warpAmp * (_warp.Fbm(cx * _warpInvScale, cz * _warpInvScale, _octaves) - 0.5f)
+                     + _jitterAmp * (_jitter.Fbm(cx * _jitterInvScale, cz * _jitterInvScale, _octaves) - 0.5f);
+            float dz = _warpAmp * (_warp.Fbm((cx + 137) * _warpInvScale, (cz - 91) * _warpInvScale, _octaves) - 0.5f)
+                     + _jitterAmp * (_jitter.Fbm((cx + 137) * _jitterInvScale, (cz - 91) * _jitterInvScale, _octaves) - 0.5f);
+            return (cx + dx, cz + dz);
+        }
+    }
+
+    /// <summary>
+    /// Pick a biome for seed index <paramref name="i"/> by rejection sampling: prefer
+    /// biomes compatible (per <see cref="BiomeCatalog.AreCompatible"/>) with the nearest
+    /// few already-placed seeds — an approximation of Voronoi adjacency that is ample for
+    /// the small seed counts used. If no candidate survives, fall back to the full pool so
+    /// generation never deadlocks. Exactly one rng draw is made regardless, keeping the
+    /// seed progression deterministic.
+    /// </summary>
+    private static Biome PickBiome(BiomeSeed[] seeds, int i, Biome[] pool, BiomeCatalog biomes, Random rng)
+    {
+        // Indices of the nearest already-placed seeds (0..i-1).
+        var neighbors = new List<int>();
+        for (int j = 0; j < i; j++)
+            neighbors.Add(j);
+        neighbors.Sort((a, b) =>
+        {
+            long da = Sq(seeds[a].X - seeds[i].X) + Sq(seeds[a].Z - seeds[i].Z);
+            long db = Sq(seeds[b].X - seeds[i].X) + Sq(seeds[b].Z - seeds[i].Z);
+            return da.CompareTo(db);
+        });
+
+        var candidates = new List<Biome>();
+        foreach (var candidate in pool)
+        {
+            bool ok = true;
+            for (int n = 0; n < neighbors.Count && n < AdjacencyNeighbors; n++)
+                if (!biomes.AreCompatible(candidate, seeds[neighbors[n]].Biome))
+                {
+                    ok = false;
+                    break;
+                }
+            if (ok)
+                candidates.Add(candidate);
+        }
+
+        var choices = candidates.Count > 0 ? candidates : new List<Biome>(pool);
+        return choices[rng.Next(choices.Count)];
+    }
+
+    private static long Sq(long v) => v * v;
+
+    /// <summary>
+    /// Find the two closest seed points to warped position (wx, wz) by distance-squared.
     /// Used by both AssignBiomes (best index) and SculptHeight (best+second for boundary blend).
     /// </summary>
-    private static (int best, int second) NearestSeeds(BiomeSeed[] seeds, int cx, int cz)
+    private static (int best, int second) NearestSeeds(BiomeSeed[] seeds, float wx, float wz)
     {
         int best = 0;
         int second = 0;
-        long bestDist = long.MaxValue;
-        long secondDist = long.MaxValue;
+        float bestDist = float.MaxValue;
+        float secondDist = float.MaxValue;
 
         for (int i = 0; i < seeds.Length; i++)
         {
-            long dx = cx - seeds[i].X;
-            long dz = cz - seeds[i].Z;
-            long dist = dx * dx + dz * dz;
+            float dx = wx - seeds[i].X;
+            float dz = wz - seeds[i].Z;
+            float dist = dx * dx + dz * dz;
 
             if (dist < bestDist)
             {
@@ -81,12 +160,20 @@ public sealed class MapGenerator
         int seedCount = Math.Max(1, config.BiomeSeedCount);
         var seeds = new BiomeSeed[seedCount];
         for (int i = 0; i < seedCount; i++)
-            seeds[i] = new BiomeSeed(rng.Next(map.Width), rng.Next(map.Depth),
-                biomePool[rng.Next(biomePool.Length)]);
+        {
+            int sx = rng.Next(map.Width);
+            int sz = rng.Next(map.Depth);
+            seeds[i] = new BiomeSeed(sx, sz, PickBiome(seeds, i, biomePool, biomes, rng));
+        }
 
-        AssignBiomes(map, seeds);
+        // Domain-warp field bends the straight Voronoi boundaries into organic shapes.
+        // Drawn here (before SculptHeight's height noise) so the rng order stays fixed.
+        var warp = new BiomeWarp(config, new HeightNoise(rng.Next()), new HeightNoise(rng.Next()));
+
+        AssignBiomes(map, seeds, warp);
+        SeparateIncompatibleBiomes(map, biomes, biomePool);
         AssignDefaultTerrain(map);
-        SculptHeight(map, config, biomes, seeds, rng);
+        SculptHeight(map, config, biomes, seeds, warp, rng);
         FloodWater(map, config);
         CarveLakes(map, config, biomes, rng);
         FillLakeIslands(map);
@@ -94,6 +181,59 @@ public sealed class MapGenerator
         ScatterRocks(map, config, biomes, rng);
 
         return map;
+    }
+
+    /// <summary>
+    /// Pass 0b: enforce biome adjacency rules at the cell level. The seed-level
+    /// rejection sampling in <see cref="PickBiome"/> only *biases* incompatible biomes
+    /// apart; domain warping can still push non-neighbor regions into contact, so this
+    /// pass provides the hard guarantee. For every cell that is 4-adjacent to an
+    /// incompatible biome (per <see cref="BiomeCatalog.AreCompatible"/>), the cell is
+    /// rewritten to a neutral "buffer" biome — the lowest-enum biome in the pool that is
+    /// compatible with every biome present. Both sides of a contested border convert in
+    /// the same snapshot pass, so a thin buffer strip is inserted and no incompatible
+    /// 4-adjacency can survive. If no neutral biome exists, the pass is a no-op. Reads
+    /// from a snapshot and draws no randomness, so determinism is unaffected.
+    /// </summary>
+    private static void SeparateIncompatibleBiomes(MapData map, BiomeCatalog biomes, Biome[] pool)
+    {
+        // Pick a buffer biome compatible with every biome in the pool (deterministic: lowest enum).
+        Biome? buffer = null;
+        foreach (var b in pool.OrderBy(x => (int)x))
+            if (pool.All(other => biomes.AreCompatible(b, other)))
+            {
+                buffer = b;
+                break;
+            }
+        if (buffer is null)
+            return; // no neutral biome — cannot enforce without creating a new conflict
+
+        // Snapshot biomes so both sides of a border see the original assignment.
+        var snap = new Biome[map.Width * map.Depth];
+        for (int cz = 0; cz < map.Depth; cz++)
+        for (int cx = 0; cx < map.Width; cx++)
+            snap[cz * map.Width + cx] = map.GetCell(cx, cz).Biome;
+
+        int[] dx4 = { -1, 1, 0, 0 };
+        int[] dz4 = { 0, 0, -1, 1 };
+        for (int cz = 0; cz < map.Depth; cz++)
+        for (int cx = 0; cx < map.Width; cx++)
+        {
+            var b = snap[cz * map.Width + cx];
+            bool violates = false;
+            for (int d = 0; d < 4 && !violates; d++)
+            {
+                int nx = cx + dx4[d], nz = cz + dz4[d];
+                if (map.InBounds(nx, nz) && !biomes.AreCompatible(b, snap[nz * map.Width + nx]))
+                    violates = true;
+            }
+            if (violates)
+            {
+                var cell = map.GetCell(cx, cz);
+                cell.Biome = buffer.Value;
+                map.SetCell(cx, cz, cell);
+            }
+        }
     }
 
     /// <summary>
@@ -126,7 +266,7 @@ public sealed class MapGenerator
     /// smoothly instead of forming cliffs.
     /// </summary>
     private static void SculptHeight(MapData map, MapGenConfig config, BiomeCatalog biomes,
-        BiomeSeed[] seeds, Random rng)
+        BiomeSeed[] seeds, BiomeWarp warp, Random rng)
     {
         var noise = new HeightNoise(rng.Next());
         float invScale = 1f / Math.Max(0.0001f, config.HeightScale);
@@ -137,17 +277,19 @@ public sealed class MapGenerator
             // Base noise sample — same continuous field everywhere.
             float n = noise.Fbm(cx * invScale, cz * invScale, config.HeightOctaves);
 
-            // Blend the two nearest biomes' offset and variation.
-            var (best, second) = NearestSeeds(seeds, cx, cz);
+            // Blend the two nearest biomes' offset and variation, using the same warped
+            // coordinates as AssignBiomes so height bias tracks the warped region edges.
+            var (wx, wz) = warp.Apply(cx, cz);
+            var (best, second) = NearestSeeds(seeds, wx, wz);
             var def1 = biomes.Get(seeds[best].Biome);
             var def2 = biomes.Get(seeds[second].Biome);
 
-            long dx1 = cx - seeds[best].X;
-            long dz1 = cz - seeds[best].Z;
+            float dx1 = wx - seeds[best].X;
+            float dz1 = wz - seeds[best].Z;
             float d1 = MathF.Sqrt(dx1 * dx1 + dz1 * dz1);
 
-            long dx2 = cx - seeds[second].X;
-            long dz2 = cz - seeds[second].Z;
+            float dx2 = wx - seeds[second].X;
+            float dz2 = wz - seeds[second].Z;
             float d2 = MathF.Sqrt(dx2 * dx2 + dz2 * dz2);
 
             float t = d1 + d2 > 0.0001f ? d1 / (d1 + d2) : 0f;
@@ -191,12 +333,13 @@ public sealed class MapGenerator
     /// (Voronoi). Scatter <see cref="MapGenConfig.BiomeSeedCount"/> seed points, each
     /// assigned a random biome; every cell takes the biome of its nearest seed.
     /// </summary>
-    private static void AssignBiomes(MapData map, BiomeSeed[] seeds)
+    private static void AssignBiomes(MapData map, BiomeSeed[] seeds, BiomeWarp warp)
     {
         for (int cz = 0; cz < map.Depth; cz++)
         for (int cx = 0; cx < map.Width; cx++)
         {
-            var (best, _) = NearestSeeds(seeds, cx, cz);
+            var (wx, wz) = warp.Apply(cx, cz);
+            var (best, _) = NearestSeeds(seeds, wx, wz);
             var cell = map.GetCell(cx, cz);
             cell.Biome = seeds[best].Biome;
             map.SetCell(cx, cz, cell);

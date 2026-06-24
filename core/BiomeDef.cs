@@ -39,6 +39,13 @@ public sealed class BiomeDef
     /// <summary>Multiplier on noise amplitude. 1.0 = full hills, 0.0 = perfectly flat.</summary>
     public float HeightVariation { get; init; } = 1f;
 
+    /// <summary>
+    /// Biomes that may not be placed adjacent to this one during region seeding.
+    /// Enforced symmetrically (if A lists B, then A↔B is forbidden even if B omits A).
+    /// Empty = no placement constraint.
+    /// </summary>
+    public IReadOnlyList<Biome> Incompatible { get; init; } = [];
+
     // --- runtime effects (read by Simulator) ---
 
     /// <summary>Happiness gained (or lost, if negative) per second a creature spends here.</summary>
@@ -47,10 +54,22 @@ public sealed class BiomeDef
     /// <summary>Multiplier applied to a creature's effective speed while in this biome.</summary>
     public float SpeedMultiplier { get; init; } = 1f;
 
-    // --- presentation hint (read by MapView) ---
+    // --- presentation hints (read by MapView) ---
 
-    /// <summary>Grass tint for this biome as a "#rrggbb" hex string.</summary>
-    public string TintHex { get; init; } = "#5a8c4d";
+    /// <summary>Grass color as a "#rrggbb" hex string.</summary>
+    public string GrassHex { get; init; } = "#DCDBA8";
+
+    /// <summary>Sand color as a "#rrggbb" hex string.</summary>
+    public string SandHex { get; init; } = "#F5CDA7";
+
+    /// <summary>Marsh color as a "#rrggbb" hex string.</summary>
+    public string MarshHex { get; init; } = "#C9DBBA";
+
+    /// <summary>Water color as a "#rrggbb" hex string.</summary>
+    public string WaterHex { get; init; } = "#75DBCD";
+
+    /// <summary>Rock color as a "#rrggbb" hex string.</summary>
+    public string RockHex { get; init; } = "#7F7A73";
 
     /// <summary>
     /// A neutral default definition for the given biome — used when a biome is not

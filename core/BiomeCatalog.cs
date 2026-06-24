@@ -53,9 +53,14 @@ public sealed class BiomeCatalog
                 FoodChance = dto.FoodChance ?? fallback.FoodChance,
                 HappinessRate = dto.HappinessRate ?? fallback.HappinessRate,
                 SpeedMultiplier = dto.SpeedMultiplier ?? fallback.SpeedMultiplier,
-                TintHex = dto.TintHex ?? fallback.TintHex,
+                GrassHex = dto.GrassHex ?? fallback.GrassHex,
+                SandHex = dto.SandHex ?? fallback.SandHex,
+                MarshHex = dto.MarshHex ?? fallback.MarshHex,
+                WaterHex = dto.WaterHex ?? fallback.WaterHex,
+                RockHex = dto.RockHex ?? fallback.RockHex,
                 HeightOffset = dto.HeightOffset ?? fallback.HeightOffset,
                 HeightVariation = dto.HeightVariation ?? fallback.HeightVariation,
+                Incompatible = ParseBiomeList(dto.Incompatible),
             };
         }
 
@@ -64,6 +69,29 @@ public sealed class BiomeCatalog
 
     /// <summary>Load a catalog from a JSON file path.</summary>
     public static BiomeCatalog Load(string path) => Parse(File.ReadAllText(path));
+
+    /// <summary>
+    /// Map a list of biome name strings to known <see cref="Biome"/> values; unknown
+    /// names are skipped (forgiving, matching the rest of the parser). Returns an empty
+    /// list for null/empty input.
+    /// </summary>
+    private static IReadOnlyList<Biome> ParseBiomeList(List<string>? names)
+    {
+        if (names is not { Count: > 0 })
+            return [];
+        var result = new List<Biome>();
+        foreach (var name in names)
+            if (Enum.TryParse<Biome>(name, ignoreCase: true, out var biome) && !result.Contains(biome))
+                result.Add(biome);
+        return result;
+    }
+
+    /// <summary>
+    /// Whether two biomes may be placed adjacent. False if either one lists the other
+    /// in its <see cref="BiomeDef.Incompatible"/> set (the rule is symmetric).
+    /// </summary>
+    public bool AreCompatible(Biome a, Biome b)
+        => !Get(a).Incompatible.Contains(b) && !Get(b).Incompatible.Contains(a);
 
     /// <summary>
     /// A catalog with no entries — every <see cref="Get"/> returns a neutral default.
@@ -103,9 +131,14 @@ public sealed class BiomeCatalog
                     FoodChance = existing.FoodChance,
                     HappinessRate = existing.HappinessRate,
                     SpeedMultiplier = existing.SpeedMultiplier,
-                    TintHex = existing.TintHex,
+                    GrassHex = existing.GrassHex,
+                    SandHex = existing.SandHex,
+                    MarshHex = existing.MarshHex,
+                    WaterHex = existing.WaterHex,
+                    RockHex = existing.RockHex,
                     HeightOffset = offset,
                     HeightVariation = existing.HeightVariation,
+                    Incompatible = existing.Incompatible,
                 };
             }
         }
@@ -124,10 +157,15 @@ public sealed class BiomeCatalog
                     FoodChance = existing.FoodChance,
                     HappinessRate = existing.HappinessRate,
                     SpeedMultiplier = existing.SpeedMultiplier,
-                    TintHex = existing.TintHex,
+                    GrassHex = existing.GrassHex,
+                    SandHex = existing.SandHex,
+                    MarshHex = existing.MarshHex,
+                    WaterHex = existing.WaterHex,
+                    RockHex = existing.RockHex,
                     HeightOffset = offsets is { Count: > 0 } && offsets.TryGetValue(biome, out var o)
                         ? o : existing.HeightOffset,
                     HeightVariation = variation,
+                    Incompatible = existing.Incompatible,
                 };
             }
         }
@@ -146,8 +184,13 @@ public sealed class BiomeCatalog
         public float? FoodChance { get; set; }
         public float? HappinessRate { get; set; }
         public float? SpeedMultiplier { get; set; }
-        public string? TintHex { get; set; }
+        public string? GrassHex { get; set; }
+        public string? SandHex { get; set; }
+        public string? MarshHex { get; set; }
+        public string? WaterHex { get; set; }
+        public string? RockHex { get; set; }
         public float? HeightOffset { get; set; }
         public float? HeightVariation { get; set; }
+        public List<string>? Incompatible { get; set; }
     }
 }

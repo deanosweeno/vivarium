@@ -33,8 +33,12 @@ public partial class BlobVisual : Node3D
             return;
         }
 
-        // Create a unique material so each blob gets its own color
-        _material = new StandardMaterial3D();
+        // Create a unique unshaded material so each blob outputs exact color
+        // without lighting washing out the pastel tones.
+        _material = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+        };
         _cube.MaterialOverride = _material;
 
         SyncFromModel();

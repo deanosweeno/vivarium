@@ -8,10 +8,10 @@ namespace Vivarium.Core;
 public sealed class MapGenConfig
 {
     /// <summary>Grid width in cells.</summary>
-    public int Width { get; init; } = 128;
+    public int Width { get; init; } = 256;
 
     /// <summary>Grid depth in cells.</summary>
-    public int Depth { get; init; } = 128;
+    public int Depth { get; init; } = 256;
 
     /// <summary>World units per cell.</summary>
     public float CellSize { get; init; } = 1.0f;
@@ -41,6 +41,31 @@ public sealed class MapGenConfig
     /// the listed biomes appear in the generated map.
     /// </summary>
     public IReadOnlySet<Biome>? BiomeNames { get; init; }
+
+    // --- biome region shaping (AssignBiomes pass) ---
+    // Domain warp bends the otherwise-straight Voronoi boundaries into organic shapes:
+    // each cell's coordinates are displaced by noise before the nearest-seed lookup.
+
+    /// <summary>
+    /// Max displacement in cells from the low-frequency warp — broad, sweeping bends of
+    /// the biome boundaries. Roughly a fraction of the seed spacing. 0 disables warping.
+    /// </summary>
+    public float BiomeWarpAmp { get; init; } = 18f;
+
+    /// <summary>Feature size in cells of the low-frequency warp — larger = broader bends.</summary>
+    public float BiomeWarpScale { get; init; } = 40f;
+
+    /// <summary>
+    /// Max displacement in cells from the high-frequency jitter — fine, coastline-like
+    /// roughness layered on top of the broad warp. 0 disables the jitter.
+    /// </summary>
+    public float BiomeJitterAmp { get; init; } = 4f;
+
+    /// <summary>Feature size in cells of the high-frequency jitter — smaller = busier edges.</summary>
+    public float BiomeJitterScale { get; init; } = 8f;
+
+    /// <summary>fBm octaves used for both biome warp fields.</summary>
+    public int BiomeWarpOctaves { get; init; } = 3;
 
     // --- terrain height (SculptHeight pass) ---
     // Global hill-shape knobs. (Per-biome amplitude could later move into BiomeDef

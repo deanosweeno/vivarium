@@ -99,7 +99,7 @@ public partial class MapView : Node3D
     /// Build the single smooth ground surface. Each cell quad is subdivided
     /// <see cref="SubdivPerCell"/>× per axis; sub-vertices sample the smooth
     /// <see cref="MapData.HeightAt"/> field for elevation and a bilinearly-blended
-    /// <see cref="ColorAt"/> for color (biome <see cref="BiomeDef.TintHex"/> for grass,
+    /// <see cref="ColorAt"/> for color (biome <see cref="BiomeDef.GrassHex"/> for grass,
     /// grey for rock, a muted lakebed tone for water). <c>GenerateNormals</c> gives smooth
     /// shading — so hills and biome borders read as continuous gradients, not coarse facets.
     /// </summary>
@@ -142,8 +142,9 @@ public partial class MapView : Node3D
 
         var material = new StandardMaterial3D
         {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
             VertexColorUseAsAlbedo = true,
-            Roughness = 0.95f,
+            VertexColorIsSrgb = true,
         };
 
         var instance = new MeshInstance3D
@@ -202,16 +203,17 @@ public partial class MapView : Node3D
         return CellColor(map.GetCell(cx, cz));
     }
 
-    /// <summary>Surface color for a cell: hardcoded colors for Rock, Water, Sand, Marsh; Grass uses its biome tint.</summary>
+    /// <summary>Surface color for a cell — all terrain colors come from the biome definition.</summary>
     private Color CellColor(Cell cell)
     {
+        var b = Biomes.Get(cell.Biome);
         return cell.Terrain switch
         {
-            Terrain.Rock => new Color(0.5f, 0.48f, 0.45f),
-            Terrain.Water => new Color(0.18f, 0.32f, 0.4f), // lakebed under the water plane
-            Terrain.Sand => new Color(0.83f, 0.71f, 0.39f), // sandy beige
-            Terrain.Marsh => new Color(0.24f, 0.35f, 0.24f), // dark green
-            _ => Color.FromHtml(Biomes.Get(cell.Biome).TintHex),
+            Terrain.Rock => Color.FromHtml(b.RockHex),
+            Terrain.Water => Color.FromHtml(b.WaterHex),
+            Terrain.Sand => Color.FromHtml(b.SandHex),
+            Terrain.Marsh => Color.FromHtml(b.MarshHex),
+            _ => Color.FromHtml(b.GrassHex),
         };
     }
 
@@ -221,9 +223,11 @@ public partial class MapView : Node3D
     /// </summary>
     private void BuildWaterPlane(MapData map)
     {
+        var waterColor = Color.FromHtml(Biomes.Get(Biome.Plains).WaterHex);
+        waterColor.A = 0.6f;
         var material = new StandardMaterial3D
         {
-            AlbedoColor = new Color(0.2f, 0.45f, 0.8f, 0.6f),
+            AlbedoColor = waterColor,
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
             Roughness = 0.1f,
             Metallic = 0.2f,

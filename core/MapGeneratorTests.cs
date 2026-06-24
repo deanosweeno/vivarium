@@ -534,4 +534,92 @@ public class MapGeneratorTests
         Assert.True(foundBlended,
             "Expected at least one adjacent pair across a biome boundary to have blended height (delta < full offset jump)");
     }
+
+    [Fact]
+    public void Generate_WithWarpAndAdjacency_IsDeterministic()
+    {
+        var biomes = BiomeCatalog.Parse("""
+            [ { "Biome": "Desert", "Incompatible": ["Wetland"] } ]
+            """);
+        var config = SmallConfig();
+        var a = MapGenerator.Generate(config, biomes, 7);
+        var b = MapGenerator.Generate(config, biomes, 7);
+
+        for (int cz = 0; cz < a.Depth; cz++)
+        for (int cx = 0; cx < a.Width; cx++)
+        {
+            Assert.Equal(a.GetCell(cx, cz).Biome, b.GetCell(cx, cz).Biome);
+            Assert.Equal(a.GetCell(cx, cz).Terrain, b.GetCell(cx, cz).Terrain);
+            Assert.Equal(a.GetCell(cx, cz).Height, b.GetCell(cx, cz).Height, 5);
+        }
+    }
+
+    [Fact]
+    public void Generate_IncompatibleBiomes_NeverSpawnAdjacent()
+    {
+        var biomes = BiomeCatalog.Parse("""
+            [ { "Biome": "Desert", "Incompatible": ["Wetland"] } ]
+            """);
+        // Higher seed count + active warp is the regime that pushes regions into contact —
+        // exactly where seed-level biasing alone fails, so the buffer pass must catch it.
+        var config = new MapGenConfig
+        {
+            Width = 64, Depth = 64, CellSize = 1f,
+            LakeCount = 0, RockClusters = 0,
+            BiomeSeedCount = 12,
+            BiomeNames = new HashSet<Biome> { Biome.Plains, Biome.Desert, Biome.Forest, Biome.Wetland },
+        };
+
+        int[] dx4 = { -1, 1, 0, 0 };
+        int[] dz4 = { 0, 0, -1, 1 };
+        // Sweep several seeds — the constraint must hold for every generated map.
+        for (int seed = 0; seed < 30; seed++)
+        {
+            var map = MapGenerator.Generate(config, biomes, seed);
+            for (int cz = 0; cz < map.Depth; cz++)
+            for (int cx = 0; cx < map.Width; cx++)
+            {
+                if (map.GetCell(cx, cz).Biome != Biome.Desert)
+                    continue;
+                for (int d = 0; d < 4; d++)
+                {
+                    int nx = cx + dx4[d], nz = cz + dz4[d];
+                    if (map.InBounds(nx, nz))
+                        Assert.NotEqual(Biome.Wetland, map.GetCell(nx, nz).Biome);
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void Generate_BiomeWarp_BendsBoundariesAwayFromVoronoi()
+    {
+        // Same seed, warp on vs. off — the biome assignment must differ, proving the
+        // domain warp is actually displacing the region boundaries.
+        var config = new MapGenConfig
+        {
+            Width = 48, Depth = 48, CellSize = 1f,
+            LakeCount = 0, RockClusters = 0,
+            BiomeSeedCount = 6,
+            BiomeNames = new HashSet<Biome> { Biome.Plains, Biome.Desert, Biome.Wetland },
+        };
+        var noWarp = new MapGenConfig
+        {
+            Width = config.Width, Depth = config.Depth, CellSize = config.CellSize,
+            LakeCount = 0, RockClusters = 0,
+            BiomeSeedCount = config.BiomeSeedCount, BiomeNames = config.BiomeNames,
+            BiomeWarpAmp = 0f, BiomeJitterAmp = 0f,
+        };
+
+        var warped = MapGenerator.Generate(config, 99);
+        var straight = MapGenerator.Generate(noWarp, 99);
+
+        bool anyDifferent = false;
+        for (int cz = 0; cz < warped.Depth && !anyDifferent; cz++)
+        for (int cx = 0; cx < warped.Width && !anyDifferent; cx++)
+            if (warped.GetCell(cx, cz).Biome != straight.GetCell(cx, cz).Biome)
+                anyDifferent = true;
+
+        Assert.True(anyDifferent, "Domain warp should change biome assignment vs. straight Voronoi");
+    }
 }

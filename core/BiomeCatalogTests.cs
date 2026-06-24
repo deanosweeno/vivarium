@@ -6,7 +6,7 @@ public class BiomeCatalogTests
 {
     private const string SampleJson = """
     [
-      { "Biome": "Plains", "WaterChance": 0.5, "HappinessRate": 0.2, "TintHex": "#5a8c4d" },
+      { "Biome": "Plains", "WaterChance": 0.5, "HappinessRate": 0.2, "GrassHex": "#5a8c4d" },
       { "Biome": "Desert", "WaterChance": 0.05, "HappinessRate": -0.3, "SpeedMultiplier": 1.1 }
     ]
     """;
@@ -20,7 +20,7 @@ public class BiomeCatalogTests
         Assert.Equal(Biome.Plains, plains.Biome);
         Assert.Equal(0.5f, plains.WaterChance, 4);
         Assert.Equal(0.2f, plains.HappinessRate, 4);
-        Assert.Equal("#5a8c4d", plains.TintHex);
+        Assert.Equal("#5a8c4d", plains.GrassHex);
 
         var desert = catalog.Get(Biome.Desert);
         Assert.Equal(1.1f, desert.SpeedMultiplier, 4);
@@ -40,10 +40,10 @@ public class BiomeCatalogTests
     [Fact]
     public void Parse_MissingFields_FallBackToDefaults()
     {
-        // Desert omits FoodChance and TintHex — should use BiomeDef defaults.
+        // Desert omits FoodChance and GrassHex — should use BiomeDef defaults.
         var desert = BiomeCatalog.Parse(SampleJson).Get(Biome.Desert);
         Assert.Equal(0f, desert.FoodChance, 4);
-        Assert.Equal("#5a8c4d", desert.TintHex);
+        Assert.Equal("#DCDBA8", desert.GrassHex);
     }
 
     [Fact]

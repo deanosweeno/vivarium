@@ -25,8 +25,4 @@ project/assembly_name="Vivarium"
 [rendering]
 
 renderer/rendering_method.mobile="forward_plus"
-
-[autoload]
-
-
-
+environment/defaults/default_environment="res://assets/default_env.tres"

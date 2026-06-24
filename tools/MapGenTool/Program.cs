@@ -11,8 +11,8 @@ using Vivarium.Core;
 // Flags (all optional except as noted):
 //   --seed <int>        RNG seed (default 0)
 //   --out <path>        output file; if omitted, only previews
-//   --width <int>       grid width  (default 128)
-//   --depth <int>       grid depth  (default 128)
+//   --width <int>       grid width  (default 256)
+//   --depth <int>       grid depth  (default 256)
 //   --cellsize <float>  world units per cell (default 1.0)
 //   --lakes <int>       lake count (default 1)
 //   --lakeradius <int>  lake radius in cells (default 12)
@@ -20,6 +20,11 @@ using Vivarium.Core;
 //   --rocksize <int>    steps per rock cluster (default 5)
 //   --biomeseeds <int>  biome region seed points (default 6)
 //   --biome-names <csv> comma-separated biome names to include (default all)
+//   --biomewarp <float>       broad warp displacement in cells; bends biome borders (default 18; 0 = straight Voronoi)
+//   --biomewarpscale <float>  broad warp feature size in cells (default 40; larger = gentler bends)
+//   --biomejitter <float>     fine edge-jitter displacement in cells (default 4; 0 = smooth borders)
+//   --biomejitterscale <float> fine jitter feature size in cells (default 8; smaller = busier edges)
+//   --biomewarpoctaves <int>  fBm octaves for both warp fields (default 3)
 //   --biomes <path>     biome rules JSON (default assets/biomes.json; neutral if missing)
 //   --amplitude <float> peak terrain height in world units (default 6)
 //   --heightscale <float> noise feature size in cells (default 24)
@@ -36,8 +41,8 @@ string? outPath = args2.TryGetValue("out", out var o) ? o : null;
 
 var config = new MapGenConfig
 {
-    Width = GetInt(args2, "width", 128),
-    Depth = GetInt(args2, "depth", 128),
+    Width = GetInt(args2, "width", 256),
+    Depth = GetInt(args2, "depth", 256),
     CellSize = GetFloat(args2, "cellsize", 1.0f),
     LakeCount = GetInt(args2, "lakes", 1),
     LakeRadius = GetInt(args2, "lakeradius", 12),
@@ -45,6 +50,11 @@ var config = new MapGenConfig
     RockClusterSize = GetInt(args2, "rocksize", 5),
     BiomeSeedCount = GetInt(args2, "biomeseeds", 6),
     BiomeNames = ParseBiomeNames(args2),
+    BiomeWarpAmp = GetFloat(args2, "biomewarp", 18f),
+    BiomeWarpScale = GetFloat(args2, "biomewarpscale", 40f),
+    BiomeJitterAmp = GetFloat(args2, "biomejitter", 4f),
+    BiomeJitterScale = GetFloat(args2, "biomejitterscale", 8f),
+    BiomeWarpOctaves = GetInt(args2, "biomewarpoctaves", 3),
     HeightAmplitude = GetFloat(args2, "amplitude", 6f),
     HeightScale = GetFloat(args2, "heightscale", 24f),
     HeightOctaves = GetInt(args2, "octaves", 4),

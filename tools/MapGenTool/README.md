@@ -45,7 +45,7 @@ Prints a downsampled ASCII map and terrain counts so you can judge a seed before
 committing it:
 
 ```
-Generated 128x128 map (seed 42, cellSize 1).
+Generated 256x256 map (seed 42, cellSize 1).
 ................................................................
 ..........................~~~~..................................
 .........................~~~~~~.................................
@@ -92,16 +92,21 @@ error exit listing the valid biomes.
 |------|---------|---------|
 | `--seed <int>` | 0 | RNG seed |
 | `--out <path>` | *(none)* | output file; omit to preview only |
-| `--width <int>` | 128 | grid width (cells) |
-| `--depth <int>` | 128 | grid depth (cells) |
+| `--width <int>` | 256 | grid width (cells) |
+| `--depth <int>` | 256 | grid depth (cells) |
 | `--cellsize <float>` | 1.0 | world units per cell |
 | `--lakes <int>` | 1 | lake count |
 | `--lakeradius <int>` | 12 | lake radius in cells |
 | `--rocks <int>` | 8 | rock cluster count |
 | `--rocksize <int>` | 5 | steps per rock cluster |
-| `--biomeseeds <int>` | 6 | biome region seed points (Voronoi) |
+| `--biomeseeds <int>` | 6 | biome region seed points (Voronoi); more = smaller, more numerous patches |
 | `--biome-names <csv>` | *(all)* | comma-separated biomes to include (e.g. `Plains,Desert`) |
 | `--biomes <path>` | `assets/biomes.json` | biome rules JSON; neutral if missing |
+| `--biomewarp <float>` | 18 | broad warp displacement (cells) that bends biome borders into organic curves; **0 = straight Voronoi (triangular)** |
+| `--biomewarpscale <float>` | 40 | broad warp feature size (cells); larger = gentler, sweeping bends |
+| `--biomejitter <float>` | 4 | fine edge-jitter displacement (cells) for coastline-like roughness; 0 = smooth borders |
+| `--biomejitterscale <float>` | 8 | fine jitter feature size (cells); smaller = busier, rougher edges |
+| `--biomewarpoctaves <int>` | 3 | fBm octaves for both warp fields |
 | `--amplitude <float>` | 6 | peak terrain height (world units) |
 | `--heightscale <float>` | 24 | noise feature size (cells between hilltops) |
 | `--octaves <int>` | 4 | fBm height detail octaves |
@@ -125,9 +130,12 @@ Every flag maps 1:1 to a property on `MapGenConfig`. Adding a flag is step 3 of 
 Generate(config, biomes, seed)
    var rng = new Random(seed)
    map = new MapData(all Grass, all Plains, Height 0)
-   ├─ AssignBiomes(map, seeds)               Voronoi nearest-seed → Cell.Biome
+   ├─ AssignBiomes(map, seeds, warp)         domain-warped Voronoi nearest-seed → Cell.Biome
+   │                                          (warp bends borders into organic curves, not triangles)
+   ├─ SeparateIncompatibleBiomes(map,        rewrites cells where incompatible biomes touch into a
+   │     biomes, pool)                        neutral buffer biome — enforces BiomeDef.Incompatible
    ├─ SculptHeight(map, config, biomes,       fBm noise + per-biome offset/variation → Cell.Height
-   │                 seeds, rng)
+   │                 seeds, warp, rng)
    ├─ FloodWater(map, config)                 Height < SeaLevel → Water
    ├─ CarveLakes(map, config, biomes, rng)    Grass → Water (biome-weighted ponds)
    └─ ScatterRocks(map, config, biomes, rng)  Grass → Rock  (never overwrites Water)
@@ -306,6 +314,40 @@ The runtime side: `Simulator.Map` + `Simulator.Biomes` are set by `scripts/Vivar
 the loaded `MapView`. Each tick, `Simulator.ApplyBiomeEffects` samples the biome under each
 creature and applies `HappinessRate` and `SpeedMultiplier`. It reads position only (no rng), so
 the sim stays deterministic.
+
+### Region *shape* — why borders are curvy, not triangular
+
+Raw nearest-seed Voronoi gives **straight** borders, so every region reads as a hard triangle/
+polygon. `AssignBiomes` fixes this by **domain-warping**: before the nearest-seed lookup each
+cell's `(x, z)` is displaced by two noise fields — a broad low-frequency *warp* (`--biomewarp`,
+`--biomewarpscale`) that makes big organic bends, plus a fine high-frequency *jitter*
+(`--biomejitter`, `--biomejitterscale`) that roughens the edge like a coastline. Set
+`--biomewarp 0 --biomejitter 0` to get the old straight Voronoi back. The warp noises are drawn
+from the shared `rng` (so determinism holds) and `SculptHeight` reuses the **same** warp so the
+per-biome height bias tracks the warped borders.
+
+### Adjacency rules — keeping biomes apart (e.g. desert ≠ wetland)
+
+A biome can declare biomes it must **not** touch via an `Incompatible` array in `biomes.json`:
+
+```json
+{ "Biome": "Desert", "WaterChance": 0.05, ..., "Incompatible": ["Wetland"] }
+```
+
+The rule is **symmetric** (Desert listing Wetland forbids the pair both ways) and enforced in two
+layers:
+1. **Seed bias** (`PickBiome`): each region seed avoids biomes incompatible with its nearest
+   already-placed seeds — a soft nudge so incompatible regions tend not to be neighbors.
+2. **Hard guarantee** (`SeparateIncompatibleBiomes`, runs right after `AssignBiomes`): any cell
+   that ends up 4-adjacent to an incompatible biome is rewritten to a neutral **buffer biome**
+   (the lowest-enum biome compatible with everything present, e.g. Plains). Both sides of the
+   contested border convert, so a thin buffer strip always separates the two — you will never see
+   sand cells touching marsh cells. If no neutral biome exists in the pool, the pass is a safe
+   no-op.
+
+To add an incompatibility: just add/extend the `Incompatible` array on either biome in
+`assets/biomes.json` and re-bake — no code change. (`Incompatible` is a normal `BiomeDef` field;
+unknown biome names inside it are ignored, matching the rest of the forgiving parser.)
 
 ---
 
