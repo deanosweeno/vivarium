@@ -6,6 +6,12 @@
 How a creature is visually assembled from one part per slot and animated for *any*
 combination without hand-authoring per-combo animation. Cozy, pastel, toon-shaded.
 
+> **Deeper dive:** [../research/procedural-animation.md](../research/procedural-animation.md)
+> surveys the technique landscape (pressure soft-body, Verlet chains, IK gait, spring
+> bones) and proposes the **layered rig** — kinematic skeleton+IK for *detail*, a cosmetic
+> spring/squash layer for *soft-body feel* — that this pipeline builds toward. One open
+> decision there: how far toward true soft-body physics to go.
+
 ## Pipeline
 
 ```
