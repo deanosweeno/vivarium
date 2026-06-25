@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/FoodVisual.cs" id="1_food01"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_food01"]
+radius = 0.25
+height = 0.5
+
+[node name="FoodVisual" type="Node3D"]
+script = ExtResource("1_food01")
+
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("SphereMesh_food01")

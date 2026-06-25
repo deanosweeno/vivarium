@@ -13,8 +13,8 @@ public enum InputKind
     Hunger,
     /// <summary>The creature's Boredom need.</summary>
     Boredom,
-    /// <summary>How uncomfortable the terrain under the creature is (1 = unpleasant, 0 = pleasant).</summary>
-    TerrainDiscomfort,
+    /// <summary>How close the nearest available food is: 1 touching, 0 at/over sense radius (or none).</summary>
+    FoodProximity,
 }
 
 /// <summary>Which <see cref="Drives"/> weight scales a consideration (or none).</summary>
@@ -52,7 +52,7 @@ public sealed class Consideration
         InputKind.Fatigue => ctx.Fatigue,
         InputKind.Hunger => ctx.Hunger,
         InputKind.Boredom => ctx.Boredom,
-        InputKind.TerrainDiscomfort => ctx.TerrainDiscomfort,
+        InputKind.FoodProximity => ctx.FoodProximity,
         _ => 0f,
     };
 

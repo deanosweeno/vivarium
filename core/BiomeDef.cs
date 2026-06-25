@@ -33,6 +33,12 @@ public sealed class BiomeDef
     /// <summary>Relative weight for placing Food in this region. 0 = never, 1 = baseline.</summary>
     public float FoodChance { get; init; } = 0f;
 
+    /// <summary>
+    /// Id of the <see cref="FoodDef"/> that grows in this biome (resolved via
+    /// <see cref="FoodCatalog"/>). One type per biome for now; empty = grows no food.
+    /// </summary>
+    public string FoodType { get; init; } = "";
+
     /// <summary>World-unit baseline added to sculpted elevation. Positive = higher (plateau), negative = lower (basin).</summary>
     public float HeightOffset { get; init; } = 0f;
 

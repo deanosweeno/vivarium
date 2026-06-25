@@ -117,9 +117,11 @@ public sealed class UtilityBrain
                     ? Steering.Flee(self.Position, senses.NeighborPosition, maxSpeed)
                     : Steering.Stop();
 
-            case SteeringKind.SeekComfort:
-                return senses.ComfortGradient.LengthSquared() > 1e-6f
-                    ? Steering.Along(senses.ComfortGradient, maxSpeed)
+            case SteeringKind.Forage:
+                // Grazing in place is handled by the Simulator; here we only path there.
+                // No food sensed → wander to search for some.
+                return senses.HasFood
+                    ? Steering.Arrive(self.Position, senses.FoodPosition, maxSpeed, self.Traits.Radius * 2f)
                     : Wander(delta, maxSpeed, rng);
 
             case SteeringKind.Wander:

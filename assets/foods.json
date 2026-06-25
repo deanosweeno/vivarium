@@ -1,0 +1,6 @@
+[
+  { "Id": "berries",  "Name": "Plains Berries", "Nutrition": 0.45, "GrazeRate": 0.6, "RespawnSeconds": 8.0,  "ColorHex": "#C0344B" },
+  { "Id": "cactus",   "Name": "Desert Cactus",  "Nutrition": 0.30, "GrazeRate": 0.4, "RespawnSeconds": 16.0, "ColorHex": "#5E8C5A" },
+  { "Id": "mushroom", "Name": "Forest Mushroom","Nutrition": 0.55, "GrazeRate": 0.7, "RespawnSeconds": 6.0,  "ColorHex": "#B06A3B" },
+  { "Id": "reeds",    "Name": "Wetland Reeds",  "Nutrition": 0.40, "GrazeRate": 0.5, "RespawnSeconds": 7.0,  "ColorHex": "#7FA05A" }
+]

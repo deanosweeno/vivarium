@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Godot;
 using Vivarium.Core;
+using FileAccess = Godot.FileAccess;
 using SNVector3 = System.Numerics.Vector3;
 
 namespace Vivarium.Scripts;
@@ -8,11 +9,14 @@ namespace Vivarium.Scripts;
 public partial class VivariumMain : Node3D
 {
     [Export] private PackedScene? _blobScene;
+    [Export] private PackedScene? _foodScene;
+    [Export] private string _foodsPath = "res://assets/foods.json";
     [Export] private Camera3D? _camera;
     [Export] private int _seed;
 
     private Simulator _sim = null!;
     private readonly Dictionary<Blob, BlobVisual> _visuals = new();
+    private readonly Dictionary<FoodItem, FoodVisual> _foodVisuals = new();
 
     public override void _Ready()
     {
@@ -92,7 +96,12 @@ public partial class VivariumMain : Node3D
             _sim.Biomes = mapView.Biomes;
         }
 
+        // Load food types and scatter food across the world (per-biome, deterministic by seed).
+        _sim.Foods = LoadFoods(_foodsPath);
+        _sim.SeedFood();
+
         _blobScene ??= ResourceLoader.Load<PackedScene>("res://scenes/Blob.tscn");
+        _foodScene ??= ResourceLoader.Load<PackedScene>("res://scenes/Food.tscn");
 
         // Spawn a handful of blobs scattered across the arena.
         float spawnHalfX = arenaWidth / 2f - 1f;
@@ -125,6 +134,45 @@ public partial class VivariumMain : Node3D
             {
                 visual.SyncFromModel();
             }
+        }
+
+        foreach (var item in _sim.Food)
+        {
+            if (!_foodVisuals.TryGetValue(item, out var foodVisual))
+            {
+                if (_foodScene == null) continue;
+                var instance = _foodScene.Instantiate<FoodVisual>();
+                AddChild(instance);
+                instance.Init(item);
+                _foodVisuals[item] = instance;
+            }
+            else
+            {
+                foodVisual.SyncFromModel();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Load the food-type catalog through Godot's FileAccess (string seam, works inside an
+    /// exported .pck). Falls back to an empty catalog (no food) if the file is missing.
+    /// </summary>
+    private static FoodCatalog LoadFoods(string path)
+    {
+        using var file = FileAccess.Open(path, FileAccess.ModeFlags.Read);
+        if (file == null)
+        {
+            GD.PrintErr($"VivariumMain: could not open foods at '{path}' ({FileAccess.GetOpenError()}); no food.");
+            return FoodCatalog.Empty;
+        }
+        try
+        {
+            return FoodCatalog.Parse(file.GetAsText());
+        }
+        catch (System.Exception e)
+        {
+            GD.PrintErr($"VivariumMain: failed to parse foods at '{path}': {e.Message}; no food.");
+            return FoodCatalog.Empty;
         }
     }
 

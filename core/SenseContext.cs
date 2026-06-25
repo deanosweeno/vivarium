@@ -25,11 +25,14 @@ public readonly struct SenseContext
     /// <summary>1 when a neighbor is touching, 0 at/beyond sense radius (or none). For Approach/Flee.</summary>
     public float NeighborProximity { get; init; }
 
-    /// <summary>Terrain unpleasantness under the creature: 1 = bad, 0 = pleasant. For SeekComfort.</summary>
-    public float TerrainDiscomfort { get; init; }
+    /// <summary>Whether any available food item is within sense radius. For Forage.</summary>
+    public bool HasFood { get; init; }
 
-    /// <summary>Normalized direction toward more comfortable terrain (zero when flat / no map).</summary>
-    public Vector3 ComfortGradient { get; init; }
+    /// <summary>Nearest available food's position (valid only when <see cref="HasFood"/>).</summary>
+    public Vector3 FoodPosition { get; init; }
+
+    /// <summary>1 when food is touching, 0 at/beyond sense radius (or none). For Forage.</summary>
+    public float FoodProximity { get; init; }
 
     // Needs are copied in so the brain reads everything from one struct.
     public float Hunger { get; init; }

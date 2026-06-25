@@ -51,6 +51,7 @@ public sealed class BiomeCatalog
                 WaterChance = dto.WaterChance ?? fallback.WaterChance,
                 RockChance = dto.RockChance ?? fallback.RockChance,
                 FoodChance = dto.FoodChance ?? fallback.FoodChance,
+                FoodType = dto.FoodType ?? fallback.FoodType,
                 HappinessRate = dto.HappinessRate ?? fallback.HappinessRate,
                 SpeedMultiplier = dto.SpeedMultiplier ?? fallback.SpeedMultiplier,
                 GrassHex = dto.GrassHex ?? fallback.GrassHex,
@@ -129,6 +130,7 @@ public sealed class BiomeCatalog
                     WaterChance = existing.WaterChance,
                     RockChance = existing.RockChance,
                     FoodChance = existing.FoodChance,
+                    FoodType = existing.FoodType,
                     HappinessRate = existing.HappinessRate,
                     SpeedMultiplier = existing.SpeedMultiplier,
                     GrassHex = existing.GrassHex,
@@ -155,6 +157,7 @@ public sealed class BiomeCatalog
                     WaterChance = existing.WaterChance,
                     RockChance = existing.RockChance,
                     FoodChance = existing.FoodChance,
+                    FoodType = existing.FoodType,
                     HappinessRate = existing.HappinessRate,
                     SpeedMultiplier = existing.SpeedMultiplier,
                     GrassHex = existing.GrassHex,
@@ -182,6 +185,7 @@ public sealed class BiomeCatalog
         public float? WaterChance { get; set; }
         public float? RockChance { get; set; }
         public float? FoodChance { get; set; }
+        public string? FoodType { get; set; }
         public float? HappinessRate { get; set; }
         public float? SpeedMultiplier { get; set; }
         public string? GrassHex { get; set; }

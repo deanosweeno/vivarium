@@ -14,8 +14,8 @@ public enum SteeringKind
     Flee,
     /// <summary>Stop and recover.</summary>
     Rest,
-    /// <summary>Head toward more comfortable terrain (forage proxy until food exists).</summary>
-    SeekComfort,
+    /// <summary>Seek and graze the nearest food (search by wandering when none is in range).</summary>
+    Forage,
 }
 
 /// <summary>

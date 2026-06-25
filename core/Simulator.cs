@@ -47,6 +47,21 @@ public sealed class Simulator
     /// </summary>
     public BehaviorConfig Behavior { get; set; } = new();
 
+    /// <summary>
+    /// Growable food items in the world. Creatures graze these to satisfy Hunger; depleted
+    /// items regrow on a timer (see <see cref="FoodItem"/>). Seeded by <see cref="SeedFood"/>.
+    /// </summary>
+    public List<FoodItem> Food { get; } = new();
+
+    /// <summary>
+    /// Optional food-type catalog. Together with <see cref="Map"/> + <see cref="Biomes"/> it
+    /// lets <see cref="SeedFood"/> place each biome's food type. Null = no food in the world.
+    /// </summary>
+    public FoodCatalog? Foods { get; set; }
+
+    /// <summary>Tunables for food density and eat range. Defaults are sensible for a small arena.</summary>
+    public FoodConfig FoodSpawn { get; set; } = new();
+
     /// <summary>Total number of entities in the simulation.</summary>
     public int EntityCount => Entities.Count;
 
@@ -131,6 +146,47 @@ public sealed class Simulator
     }
 
     /// <summary>
+    /// Scatter initial food across the arena. The attempt count scales with arena area and
+    /// <see cref="FoodConfig.DensityPer100SqUnits"/>; each candidate is accepted with the
+    /// local biome's <see cref="BiomeDef.FoodChance"/> probability and assigned that biome's
+    /// <see cref="BiomeDef.FoodType"/>. No-op without a <see cref="Foods"/> catalog. Uses
+    /// <see cref="Rng"/>, so a given seed produces the same food layout (deterministic).
+    /// </summary>
+    public void SeedFood()
+    {
+        Food.Clear();
+        if (Foods is null) return;
+
+        float width = Arena.MaxX - Arena.MinX;
+        float depth = Arena.MaxZ - Arena.MinZ;
+        if (!float.IsFinite(width) || !float.IsFinite(depth) || width <= 0f || depth <= 0f)
+            return;
+
+        int attempts = Math.Max(0, (int)MathF.Round(width * depth / 100f * FoodSpawn.DensityPer100SqUnits));
+        for (int i = 0; i < attempts; i++)
+        {
+            float x = (float)(Rng.NextDouble() * width) + Arena.MinX;
+            float z = (float)(Rng.NextDouble() * depth) + Arena.MinZ;
+            var pos = new Vector3(x, 0f, z);
+
+            // Biome gates placement (FoodChance) and selects the food type.
+            string typeId = "";
+            float chance = 1f;
+            if (Map is not null && Biomes is not null)
+            {
+                var def = Biomes.Get(Map.BiomeAt(pos));
+                typeId = def.FoodType;
+                chance = def.FoodChance;
+            }
+            if (string.IsNullOrEmpty(typeId)) continue;
+            if (Rng.NextDouble() > chance) continue;
+
+            pos = new Vector3(x, GroundFloor(pos), z);
+            Food.Add(new FoodItem { Position = pos, Def = Foods.Get(typeId) });
+        }
+    }
+
+    /// <summary>
     /// Advance all entities by <paramref name="delta"/> seconds.
     ///
     /// Pipeline (applied uniformly to every creature):
@@ -145,6 +201,11 @@ public sealed class Simulator
     /// </summary>
     public void Tick(double delta)
     {
+        // --- Food regrowth (depleted items count down toward regrowing) ---
+        float fdt = (float)delta;
+        foreach (var item in Food)
+            item.Regrow(fdt);
+
         // --- Per-entity pipeline ---
         foreach (var entity in Entities)
         {
@@ -189,6 +250,9 @@ public sealed class Simulator
                     entity.Velocity.X, 0f, entity.Velocity.Z);
             }
         }
+
+        // --- Grazing: foraging creatures eat the food they've reached ---
+        ResolveGrazing(delta);
 
         // --- Entity collision ---
         ResolveEntityCollisions();
@@ -274,22 +338,10 @@ public sealed class Simulator
         bool hasNeighbor = nearest is not null && nearestDist <= radius;
         float proximity = hasNeighbor ? 1f - nearestDist / radius : 0f;
 
-        // Terrain comfort (forage proxy). Discomfort rises where biome happiness is negative;
-        // the gradient points toward higher-happiness terrain.
-        float discomfort = 0f;
-        Vector3 gradient = Vector3.Zero;
-        if (Map is not null && Biomes is not null)
-        {
-            discomfort = Math.Clamp(-Happiness(self.Position), 0f, 1f);
-            float step = radius * 0.5f;
-            float hx = Happiness(self.Position + new Vector3(step, 0, 0))
-                     - Happiness(self.Position - new Vector3(step, 0, 0));
-            float hz = Happiness(self.Position + new Vector3(0, 0, step))
-                     - Happiness(self.Position - new Vector3(0, 0, step));
-            gradient = new Vector3(hx, 0f, hz);
-            if (gradient.LengthSquared() > 1e-8f)
-                gradient = Vector3.Normalize(gradient);
-        }
+        // Nearest available food (horizontal distance).
+        var (foodItem, foodDist) = NearestFood(self.Position);
+        bool hasFood = foodItem is not null && foodDist <= radius;
+        float foodProximity = hasFood ? 1f - foodDist / radius : 0f;
 
         return new SenseContext
         {
@@ -297,17 +349,62 @@ public sealed class Simulator
             HasNeighbor = hasNeighbor,
             NeighborPosition = nearest?.Position ?? self.Position,
             NeighborProximity = proximity,
-            TerrainDiscomfort = discomfort,
-            ComfortGradient = gradient,
+            HasFood = hasFood,
+            FoodPosition = foodItem?.Position ?? self.Position,
+            FoodProximity = foodProximity,
             Hunger = self.Needs.Hunger,
             Fatigue = self.Needs.Fatigue,
             Boredom = self.Needs.Boredom,
         };
     }
 
-    /// <summary>Biome happiness rate under a world position (0 when no map/catalog).</summary>
-    private float Happiness(Vector3 pos)
-        => Map is not null && Biomes is not null ? Biomes.Get(Map.BiomeAt(pos)).HappinessRate : 0f;
+    /// <summary>
+    /// Nearest currently-available food item to a world position (horizontal distance), or
+    /// (null, +inf) when there is none. O(food); shares the perception pass's partitioning TODO.
+    /// </summary>
+    private (FoodItem? Item, float Dist) NearestFood(Vector3 from)
+    {
+        FoodItem? nearest = null;
+        float nearestDist = float.MaxValue;
+        foreach (var item in Food)
+        {
+            if (!item.Available) continue;
+            var d = item.Position - from;
+            float dist = MathF.Sqrt(d.X * d.X + d.Z * d.Z);
+            if (dist < nearestDist)
+            {
+                nearestDist = dist;
+                nearest = item;
+            }
+        }
+        return (nearest, nearestDist);
+    }
+
+    /// <summary>
+    /// Each foraging creature grazes the nearest available food within eat range, draining the
+    /// item and lowering the creature's Hunger by the nutrition consumed this tick. Only
+    /// creatures whose current action steers toward <see cref="SteeringKind.Forage"/> eat, so a
+    /// creature fleeing across food doesn't snack mid-panic.
+    /// </summary>
+    private void ResolveGrazing(double delta)
+    {
+        if (Food.Count == 0) return;
+        float dt = (float)delta;
+
+        foreach (var entity in Entities)
+        {
+            if (entity.Brain?.Current?.Steering != SteeringKind.Forage) continue;
+
+            var (item, dist) = NearestFood(entity.Position);
+            if (item is null) continue;
+
+            float eatRange = entity.Traits.Radius + FoodSpawn.EatRange;
+            if (dist > eatRange) continue;
+
+            entity.Needs.Hunger -= item.Bite(dt);
+            entity.Needs.Clamp();
+        }
+    }
 
     /// <summary>
     /// Advance a creature's needs by one tick. Fatigue drains while moving and recovers at

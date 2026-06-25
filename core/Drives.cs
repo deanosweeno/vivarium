@@ -31,7 +31,7 @@ public sealed class Drives
     /// </summary>
     public float PlayCuddle { get; set; } = 0.5f;
 
-    /// <summary>Foraging weight (pairs with the Hunger need). Feeds SeekComfort / forage.</summary>
+    /// <summary>Foraging weight (pairs with the Hunger need). Scales the Forage action.</summary>
     public float Appetite { get; set; } = 0.5f;
 
     /// <summary>

@@ -53,7 +53,7 @@ public sealed class BehaviorConfig
     public IReadOnlyList<BehaviorAction> Actions { get; init; } = DefaultActions();
 
     /// <summary>
-    /// The v1 "full five" action table. Wander / Approach / Flee / Rest / SeekComfort,
+    /// The v1 "full five" action table. Wander / Approach / Flee / Rest / Forage,
     /// each built from considerations over the existing world systems.
     /// </summary>
     public static IReadOnlyList<BehaviorAction> DefaultActions() =>
@@ -115,17 +115,19 @@ public sealed class BehaviorConfig
             ],
         },
 
-        // SeekComfort — appetite × terrain discomfort. Forage proxy via biome happiness.
-        // TODO: replace terrain-discomfort with real nearest-food perception when food entities exist.
+        // Forage — driven by Hunger (squared, so it stays quiet until the creature is
+        // genuinely hungry) and weighted by the Appetite drive. No food-proximity gate:
+        // a hungry creature commits to foraging and *searches* (Wander) until food is in
+        // range, then the Forage steering paths to it and the Simulator grazes it down.
         new BehaviorAction
         {
-            Name = "SeekComfort",
-            Steering = SteeringKind.SeekComfort,
-            BaseWeight = 0.8f,
+            Name = "Forage",
+            Steering = SteeringKind.Forage,
+            BaseWeight = 0.9f,
             Considerations =
             [
-                new Consideration { Input = InputKind.TerrainDiscomfort, Drive = DriveKind.Appetite,
-                    Curve = new ResponseCurve { Type = CurveType.Linear } },
+                new Consideration { Input = InputKind.Hunger, Drive = DriveKind.Appetite,
+                    Curve = new ResponseCurve { Type = CurveType.Power, Exponent = 2f } },
             ],
         },
     ];
