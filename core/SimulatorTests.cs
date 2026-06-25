@@ -119,17 +119,9 @@ public class SimulatorTests
         var b2 = sim.SpawnBlob(new Vector3(1, 0, 1));
         var b3 = sim.SpawnBlob(new Vector3(-1, 0, -1));
 
-        // Force blob walk modes to idle with tiny timer so they transition to sliding
-        ((BlobWalkMode)b1.Movement).State = WanderState.Idle;
-        ((BlobWalkMode)b1.Movement).StateTimer = 0.01;
-        ((BlobWalkMode)b2.Movement).State = WanderState.Idle;
-        ((BlobWalkMode)b2.Movement).StateTimer = 0.01;
-        ((BlobWalkMode)b3.Movement).State = WanderState.Idle;
-        ((BlobWalkMode)b3.Movement).StateTimer = 0.01;
-
         sim.Tick(0.1);
 
-        // All should now be sliding (have velocity)
+        // The Utility-AI brain picks a moving action (wander/approach/flee) → nonzero velocity.
         Assert.NotEqual(Vector3.Zero, b1.Velocity);
         Assert.NotEqual(Vector3.Zero, b2.Velocity);
         Assert.NotEqual(Vector3.Zero, b3.Velocity);
@@ -165,9 +157,8 @@ public class SimulatorTests
         {
             Assert.Equal(sim1.Entities[i].Position, sim2.Entities[i].Position);
             Assert.Equal(sim1.Entities[i].Velocity, sim2.Entities[i].Velocity);
-            // Verify wander state determinism for blobs
-            if (sim1.Entities[i] is Blob b1 && sim2.Entities[i] is Blob b2)
-                Assert.Equal(((BlobWalkMode)b1.Movement).State, ((BlobWalkMode)b2.Movement).State);
+            // Brains decide identically under the same seed → same chosen action.
+            Assert.Equal(sim1.Entities[i].Brain?.CurrentName, sim2.Entities[i].Brain?.CurrentName);
         }
     }
 
@@ -183,12 +174,7 @@ public class SimulatorTests
         sim.Entities.Add(b1);
         sim.Entities.Add(b2);
 
-        // Keep them idle so they don't wander on Tick
-        ((BlobWalkMode)b1.Movement).State = WanderState.Idle;
-        ((BlobWalkMode)b1.Movement).StateTimer = 999;
-        ((BlobWalkMode)b2.Movement).State = WanderState.Idle;
-        ((BlobWalkMode)b2.Movement).StateTimer = 999;
-
+        // Directly-constructed blobs have no brain → stationary, isolating collision.
         float distBefore = (b1.Position - b2.Position).Length();
         Assert.True(distBefore < 0.9f, "blobs should start overlapping");
 
@@ -208,10 +194,9 @@ public class SimulatorTests
         var b1 = sim.SpawnBlob(new Vector3(-3f, 0, 0));
         var b2 = sim.SpawnBlob(new Vector3(3f, 0, 0));
 
-        ((BlobWalkMode)b1.Movement).State = WanderState.Idle;
-        ((BlobWalkMode)b1.Movement).StateTimer = 999;
-        ((BlobWalkMode)b2.Movement).State = WanderState.Idle;
-        ((BlobWalkMode)b2.Movement).StateTimer = 999;
+        // Freeze the brains so they don't wander — isolate the no-overlap case.
+        b1.Brain = null;
+        b2.Brain = null;
 
         var pos1Before = b1.Position;
         var pos2Before = b2.Position;
@@ -234,11 +219,6 @@ public class SimulatorTests
         var b2 = new Blob(Vector3.Zero, 1f, 0f, 0f, sim.Rng);
         sim.Entities.Add(b1);
         sim.Entities.Add(b2);
-
-        ((BlobWalkMode)b1.Movement).State = WanderState.Idle;
-        ((BlobWalkMode)b1.Movement).StateTimer = 999;
-        ((BlobWalkMode)b2.Movement).State = WanderState.Idle;
-        ((BlobWalkMode)b2.Movement).StateTimer = 999;
 
         // Shouldn't throw or produce NaN
         sim.Tick(0.1);
@@ -566,8 +546,6 @@ public class SimulatorTests
 
         // Blob at Y=0.5 (floor + radius), creature at Y=0.5 overlapping
         var blob = new Blob(new Vector3(1f, 0.5f, 0f), 1f, 0f, 0f, sim.Rng);
-        ((BlobWalkMode)blob.Movement).State = WanderState.Idle;
-        ((BlobWalkMode)blob.Movement).StateTimer = 999;
         sim.Entities.Add(blob);
 
         var traits = new CreatureTraits { Radius = 0.5f, MaxSpeed = 0f };
@@ -619,8 +597,6 @@ public class SimulatorTests
         float floor = arena.MinY + Blob.DefaultBlobTraits.Radius; // 0.5
 
         var blob = new Blob(new Vector3(0f, floor, 0f), 1f, 0f, 0f, sim.Rng);
-        ((BlobWalkMode)blob.Movement).State = WanderState.Idle;
-        ((BlobWalkMode)blob.Movement).StateTimer = 999;
         sim.Entities.Add(blob);
 
         // Creature directly above the blob — collision pushes blob down

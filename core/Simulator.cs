@@ -41,6 +41,12 @@ public sealed class Simulator
     /// </summary>
     public BiomeCatalog? Biomes { get; set; }
 
+    /// <summary>
+    /// Tunables + action table for the Utility AI. Shared by reference with every
+    /// creature's <see cref="UtilityBrain"/>. Defaults to the v1 "full five" action set.
+    /// </summary>
+    public BehaviorConfig Behavior { get; set; } = new();
+
     /// <summary>Total number of entities in the simulation.</summary>
     public int EntityCount => Entities.Count;
 
@@ -74,7 +80,8 @@ public sealed class Simulator
         }
 
         var (r, g, b) = Blob.RandomPastelColor(Rng);
-        var blob = new Blob(clamped, r, g, b, Rng);
+        var blob = new Blob(clamped, r, g, b, Rng, drives: Drives.Randomized(Rng));
+        blob.Brain = new UtilityBrain(Behavior);
         Entities.Add(blob);
         return blob;
     }
@@ -147,11 +154,22 @@ public sealed class Simulator
                 entity.Velocity.Y - Gravity * entity.Traits.GravityScale * (float)delta,
                 entity.Velocity.Z);
 
-            // 2. Movement tick (wander + wall bounce)
+            // 1b. Utility-AI decision → sets DesiredVelocity (no-op if the creature has no brain)
+            if (entity.Brain is not null)
+            {
+                var senses = BuildSenses(entity);
+                entity.Brain.Tick(delta, entity, senses, Rng);
+            }
+
+            // 2. Movement tick (steer toward DesiredVelocity + wall bounce)
             entity.Movement.Tick(delta, entity, Arena, Rng);
 
             // 2b. Biome effects (happiness, speed) if a map + catalog are present
             ApplyBiomeEffects(entity, delta);
+
+            // 2c. Advance dynamic needs based on how the creature actually moved
+            if (entity.Brain is not null)
+                UpdateNeeds(entity, delta);
 
             // 3. Ground placement — rest the entity on the terrain surface under it.
             float floor = GroundFloor(entity.Position) + entity.Traits.Radius;
@@ -222,6 +240,100 @@ public sealed class Simulator
             float scale = maxSpeed / speed;
             entity.Velocity = new System.Numerics.Vector3(v.X * scale, v.Y, v.Z * scale);
         }
+    }
+
+    // -------------------------------------------------
+    // Perception & needs (Utility AI support)
+    // -------------------------------------------------
+
+    /// <summary>
+    /// Assemble the perception snapshot for one creature: nearest neighbor within sense
+    /// radius, terrain discomfort + comfort gradient (when a map+catalog are present), and
+    /// a copy of its current needs. Reads positions only — no randomness — so decisions
+    /// stay deterministic.
+    /// </summary>
+    private SenseContext BuildSenses(Creature self)
+    {
+        float radius = Behavior.SenseRadius;
+
+        // Nearest neighbor (horizontal distance).
+        Creature? nearest = null;
+        float nearestDist = float.MaxValue;
+        foreach (var other in Entities)
+        {
+            if (ReferenceEquals(other, self)) continue;
+            var d = other.Position - self.Position;
+            float dist = MathF.Sqrt(d.X * d.X + d.Z * d.Z);
+            if (dist < nearestDist)
+            {
+                nearestDist = dist;
+                nearest = other;
+            }
+        }
+
+        bool hasNeighbor = nearest is not null && nearestDist <= radius;
+        float proximity = hasNeighbor ? 1f - nearestDist / radius : 0f;
+
+        // Terrain comfort (forage proxy). Discomfort rises where biome happiness is negative;
+        // the gradient points toward higher-happiness terrain.
+        float discomfort = 0f;
+        Vector3 gradient = Vector3.Zero;
+        if (Map is not null && Biomes is not null)
+        {
+            discomfort = Math.Clamp(-Happiness(self.Position), 0f, 1f);
+            float step = radius * 0.5f;
+            float hx = Happiness(self.Position + new Vector3(step, 0, 0))
+                     - Happiness(self.Position - new Vector3(step, 0, 0));
+            float hz = Happiness(self.Position + new Vector3(0, 0, step))
+                     - Happiness(self.Position - new Vector3(0, 0, step));
+            gradient = new Vector3(hx, 0f, hz);
+            if (gradient.LengthSquared() > 1e-8f)
+                gradient = Vector3.Normalize(gradient);
+        }
+
+        return new SenseContext
+        {
+            SelfPosition = self.Position,
+            HasNeighbor = hasNeighbor,
+            NeighborPosition = nearest?.Position ?? self.Position,
+            NeighborProximity = proximity,
+            TerrainDiscomfort = discomfort,
+            ComfortGradient = gradient,
+            Hunger = self.Needs.Hunger,
+            Fatigue = self.Needs.Fatigue,
+            Boredom = self.Needs.Boredom,
+        };
+    }
+
+    /// <summary>Biome happiness rate under a world position (0 when no map/catalog).</summary>
+    private float Happiness(Vector3 pos)
+        => Map is not null && Biomes is not null ? Biomes.Get(Map.BiomeAt(pos)).HappinessRate : 0f;
+
+    /// <summary>
+    /// Advance a creature's needs by one tick. Fatigue drains while moving and recovers at
+    /// rest; boredom is the inverse; hunger creeps up steadily (satisfied once food exists).
+    /// </summary>
+    private void UpdateNeeds(Creature entity, double delta)
+    {
+        float dt = (float)delta;
+        var n = entity.Needs;
+
+        float maxSpeed = MathF.Max(entity.Traits.MaxSpeed, 1e-3f);
+        float speed = MathF.Sqrt(entity.Velocity.X * entity.Velocity.X + entity.Velocity.Z * entity.Velocity.Z);
+        float speedFrac = Math.Clamp(speed / maxSpeed, 0f, 1f);
+
+        if (speedFrac < 0.1f)
+        {
+            n.Fatigue -= Behavior.FatigueRecoverPerSec * dt;
+            n.Boredom += Behavior.BoredomGainPerSec * dt;
+        }
+        else
+        {
+            n.Fatigue += Behavior.FatigueGainPerSec * speedFrac * dt;
+            n.Boredom -= Behavior.BoredomRelievePerSec * dt;
+        }
+        n.Hunger += Behavior.HungerGainPerSec * dt;
+        n.Clamp();
     }
 
     // -------------------------------------------------

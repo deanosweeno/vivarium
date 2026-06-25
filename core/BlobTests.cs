@@ -53,11 +53,13 @@ public class BlobTests
     }
 
     [Fact]
-    public void UsesBlobWalkMode()
+    public void UsesSteeringLocomotion()
     {
         var rng = new Random(42);
         var blob = new Blob(Vector3.Zero, 1f, 0f, 0f, rng);
-        Assert.IsType<BlobWalkMode>(blob.Movement);
+        // Blobs now move via the brain-driven steering layer; the wander rhythm relocated
+        // into the Wander action of the UtilityBrain.
+        Assert.IsType<SteeringLocomotion>(blob.Movement);
     }
 
     [Fact]

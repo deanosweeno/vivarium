@@ -38,13 +38,15 @@ public class Blob : Creature
 
     /// <summary>
     /// Create a blob at the given position with the specified pastel color.
-    /// Uses <see cref="BlobWalkMode"/> for wander behavior.
-    /// If <paramref name="traits"/> is null, <see cref="DefaultBlobTraits"/> is used.
-    /// <paramref name="rng"/> seeds the initial Idle duration and future direction picks.
+    /// Uses <see cref="SteeringLocomotion"/> driven by a <see cref="UtilityBrain"/>
+    /// (attached by the Simulator). If <paramref name="traits"/> is null,
+    /// <see cref="DefaultBlobTraits"/> is used. If <paramref name="drives"/> is null, a
+    /// neutral temperament is used. <paramref name="rng"/> is accepted for API symmetry.
     /// </summary>
-    public Blob(Vector3 position, float r, float g, float b, Random rng, CreatureTraits? traits = null)
-        : base(position, traits ?? DefaultBlobTraits, new BlobWalkMode(rng))
+    public Blob(Vector3 position, float r, float g, float b, Random rng, CreatureTraits? traits = null, Drives? drives = null)
+        : base(position, traits ?? DefaultBlobTraits, new SteeringLocomotion(), drives)
     {
+        _ = rng;
         R = r;
         G = g;
         B = b;

@@ -42,15 +42,39 @@ public class Creature
     public float Happiness { get; internal set; }
 
     /// <summary>
+    /// Innate personality weights — the first slice of the genotype. Stable for the
+    /// creature's lifetime; consumed by <see cref="Brain"/> when scoring actions.
+    /// </summary>
+    public Drives Drives { get; }
+
+    /// <summary>Dynamic need state (hunger/fatigue/boredom), updated each tick by the Simulator.</summary>
+    public CreatureNeeds Needs { get; }
+
+    /// <summary>
+    /// Steering target set by <see cref="Brain"/> each tick; the <see cref="Movement"/>
+    /// layer accelerates toward it. Zero when the creature should stand still.
+    /// </summary>
+    public Vector3 DesiredVelocity { get; internal set; }
+
+    /// <summary>
+    /// Optional Utility-AI brain. When set, the Simulator builds a <see cref="SenseContext"/>
+    /// and ticks it each frame to drive <see cref="DesiredVelocity"/>. Null = no brain
+    /// (the creature relies purely on its movement mode, preserving older behavior).
+    /// </summary>
+    public UtilityBrain? Brain { get; set; }
+
+    /// <summary>
     /// Create a creature at the given position with specified traits and
     /// movement strategy. If <paramref name="traits"/> is null, defaults
-    /// are used.
+    /// are used. If <paramref name="drives"/> is null, a neutral temperament is used.
     /// </summary>
-    public Creature(Vector3 position, CreatureTraits? traits, IMovementMode movement)
+    public Creature(Vector3 position, CreatureTraits? traits, IMovementMode movement, Drives? drives = null)
     {
         Position = position;
         Velocity = Vector3.Zero;
         Traits = traits ?? CreatureTraits.Default;
         Movement = movement;
+        Drives = drives ?? Drives.Default;
+        Needs = new CreatureNeeds();
     }
 }
