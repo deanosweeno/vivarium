@@ -19,6 +19,19 @@ public partial class CameraOrbit : Camera3D
 
     private bool _orbiting;
 
+    /// <summary>
+    /// World point the camera orbits and looks at. Set each frame to follow a moving
+    /// avatar; updates the transform immediately, preserving the current yaw/pitch/zoom.
+    /// </summary>
+    public Vector3 Target
+    {
+        get => _target;
+        set { _target = value; UpdateTransform(); }
+    }
+
+    /// <summary>Current horizontal orbit angle (radians), so callers can make input camera-relative.</summary>
+    public float Yaw => _yaw;
+
     public override void _Ready()
     {
         UpdateTransform();

@@ -135,6 +135,41 @@ public sealed class Simulator
         return creature;
     }
 
+    /// <summary>
+    /// Spawn the player-controlled avatar at the given position. It's a <see cref="Blob"/>
+    /// (so it reuses the blob visual) but with a distinctive gold color, a faster
+    /// <see cref="CreatureTraits.MaxSpeed"/> than grazing blobs, and <see cref="Creature.Brain"/>
+    /// left null — the sim therefore skips AI decisions and need updates for it. Its movement
+    /// comes from the returned <see cref="PlayerInputMode"/>, which the IO layer feeds each
+    /// frame. Placement reuses the same overlap/clamp retry as <see cref="SpawnBlob"/>.
+    /// </summary>
+    public (Blob Player, PlayerInputMode Input) SpawnPlayer(Vector3 position)
+    {
+        var traits = new CreatureTraits(Blob.DefaultBlobTraits) { MaxSpeed = 2.0f };
+        float radius = traits.Radius;
+        var clamped = Arena.Clamp(position, radius);
+
+        float minDist = radius * 2f;
+        for (int attempt = 0; attempt < 10; attempt++)
+        {
+            if (!OverlapsAny(clamped, minDist))
+                break;
+
+            float rx = (float)(Rng.NextDouble() * (Arena.MaxX - Arena.MinX - radius * 2) + Arena.MinX + radius);
+            float rz = (float)(Rng.NextDouble() * (Arena.MaxZ - Arena.MinZ - radius * 2) + Arena.MinZ + radius);
+            clamped = new Vector3(rx, 0f, rz);
+        }
+
+        // Bright gold so the avatar reads as "you" against the pastel blobs.
+        var input = new PlayerInputMode();
+        var player = new Blob(clamped, 1f, 0.84f, 0.2f, Rng, traits: traits)
+        {
+            Movement = input,
+        };
+        Entities.Add(player);
+        return (player, input);
+    }
+
     private bool OverlapsAny(Vector3 position, float minDist)
     {
         foreach (var entity in Entities)

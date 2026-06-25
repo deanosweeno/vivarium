@@ -18,6 +18,10 @@ public partial class VivariumMain : Node3D
     private readonly Dictionary<Blob, BlobVisual> _visuals = new();
     private readonly Dictionary<FoodItem, FoodVisual> _foodVisuals = new();
 
+    private Blob? _player;
+    private PlayerInputMode? _playerInput;
+    private CameraOrbit? _cameraOrbit;
+
     public override void _Ready()
     {
         if (_camera == null)
@@ -112,11 +116,19 @@ public partial class VivariumMain : Node3D
             var z = (float)(_sim.Rng.NextDouble() * 2 - 1) * spawnHalfZ;
             _sim.SpawnBlob(new SNVector3(x, 0f, z));
         }
+
+        // Spawn the player avatar at the arena center and point the follow-camera at it.
+        (_player, _playerInput) = _sim.SpawnPlayer(SNVector3.Zero);
+        _cameraOrbit = _camera as CameraOrbit;
+        if (_cameraOrbit != null)
+            _cameraOrbit.Target = new Vector3(_player.Position.X, _player.Position.Y, _player.Position.Z);
     }
 
     public override void _Process(double delta)
     {
+        UpdatePlayerInput();
         _sim.Tick(delta);
+        TrackPlayerWithCamera();
 
         foreach (var entity in _sim.Entities)
         {
@@ -151,6 +163,35 @@ public partial class VivariumMain : Node3D
                 foodVisual.SyncFromModel();
             }
         }
+    }
+
+    /// <summary>
+    /// Read WASD/arrow movement, rotate it into world space by the camera yaw (so "forward"
+    /// is away from the camera), and hand it to the player's movement mode. The Simulator
+    /// integrates it on the next Tick alongside every other entity.
+    /// </summary>
+    private void UpdatePlayerInput()
+    {
+        if (_playerInput == null) return;
+
+        // X = right(+)/left(−), Y = back(+)/forward(−) in Godot's down-positive 2D vector.
+        var move = Input.GetVector("move_left", "move_right", "move_forward", "move_back");
+
+        // Rotate the input by the camera yaw so movement is camera-relative.
+        float yaw = _cameraOrbit?.Yaw ?? 0f;
+        float cos = Mathf.Cos(yaw), sin = Mathf.Sin(yaw);
+        // move.Y < 0 = forward (away from camera, world −Z when yaw=0).
+        float wx = move.X * cos + move.Y * sin;
+        float wz = -move.X * sin + move.Y * cos;
+
+        _playerInput.MoveInput = new System.Numerics.Vector2(wx, wz);
+    }
+
+    /// <summary>Keep the orbit camera centered on the avatar each frame.</summary>
+    private void TrackPlayerWithCamera()
+    {
+        if (_cameraOrbit == null || _player == null) return;
+        _cameraOrbit.Target = new Vector3(_player.Position.X, _player.Position.Y, _player.Position.Z);
     }
 
     /// <summary>
