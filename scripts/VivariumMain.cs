@@ -119,18 +119,26 @@ public partial class VivariumMain : Node3D
         float spawnHalfX = arenaWidth / 2f - 1f;
         float spawnHalfZ = arenaDepth / 2f - 1f;
 
+        // Placement strategy: arena clamp + overlap avoidance — the default spawn path.
+        var spawnPlacement = new OverlapAvoidingPlacement(ArenaClampPlacement.Instance);
+
         // A few Sprouts (random temperament) keep the original creature in the mix.
         for (int i = 0; i < 4; i++)
         {
             var x = (float)(_sim.Rng.NextDouble() * 2 - 1) * spawnHalfX;
             var z = (float)(_sim.Rng.NextDouble() * 2 - 1) * spawnHalfZ;
-            var blob = _sim.SpawnBlob(new SNVector3(x, 0f, z));
+            var blob = (Blob)_sim.Spawn(
+                new SNVector3(x, 0f, z),
+                new BlobFactory(_sim.Behavior, _sim.Rng),
+                spawnPlacement);
             blob.Body = _sproutPlan;
         }
 
         // --- Sheep herd: Plains only, berries diet, 12 strong ---
-        // Spawn in a tight cluster so flocking (≥2 neighbors within 5 units) engages from
-        // frame one. Pick one random Plains cell center, jitter each sheep 0–2 units around it.
+        // Spawn in a tight cluster around one Plains cell center so flocking engages
+        // from frame one. Composed placement chain: arena clamp → biome filter → overlap
+        // avoidance. The overlap retry passes through the biome filter, so constraints
+        // survive even when sheep overlap at spawn.
         if (mapView?.Map != null && _sheepPlan != null)
         {
             var herdCenter = PickBiomeCenter(mapView.Map, Biome.Plains, _sim.Rng);
@@ -156,27 +164,19 @@ public partial class VivariumMain : Node3D
                     PlayCuddle = 0.3f,
                 };
                 var sheepDiet = new HashSet<string> { "berries" };
+                var sheepPlacement = new OverlapAvoidingPlacement(
+                    new BiomeFilteredPlacement(ArenaClampPlacement.Instance, mapView.Map, Biome.Plains));
                 for (int i = 0; i < 12; i++)
                 {
-                    // Jitter within a 2-unit radius; retry if the candidate lands
-                    // outside the Plains biome. The cell center is only 0.5 units from
-                    // its edge, so a 2-unit jitter easily spills into adjacent biomes.
-                    // Fall back to the guaranteed-Plains herd center if all retries fail.
-                    SNVector3 pos;
-                    for (int retry = 0; retry < 20; retry++)
-                    {
-                        float ox = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
-                        float oz = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
-                        var candidate = new SNVector3(herdPos.X + ox, herdPos.Y, herdPos.Z + oz);
-                        if (mapView.Map.BiomeAt(candidate) == Biome.Plains)
-                        {
-                            pos = candidate;
-                            goto spawn;
-                        }
-                    }
-                    pos = herdPos; // fallback: guaranteed Plains cell center
-                spawn:
-                    var sheep = _sim.SpawnBlob(pos, new CreatureTraits(sheepTraits), new Drives(sheepDrives));
+                    float ox = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
+                    float oz = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
+                    var sheep = (Blob)_sim.Spawn(
+                        new SNVector3(herdPos.X + ox, herdPos.Y, herdPos.Z + oz),
+                        new BlobFactory(_sim.Behavior, _sim.Rng),
+                        sheepPlacement,
+                        sheepTraits,
+                        null,
+                        sheepDrives);
                     sheep.Body = _sheepPlan;
                     sheep.Diet = sheepDiet;
                 }

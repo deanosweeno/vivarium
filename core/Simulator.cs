@@ -72,123 +72,79 @@ public sealed class Simulator
     }
 
     /// <summary>
-    /// Spawn a new blob at the given position with a random pastel color.
-    /// The position is clamped to arena bounds (with radius margin) and
-    /// retried up to 10 times if it overlaps an existing entity.
+    /// The unified spawn seam. Resolves the desired position through an optional
+    /// <see cref="IPlacementStrategy"/> chain, then creates the creature via the given
+    /// <see cref="ICreatureFactory"/>. Default placement is arena-clamp only (no overlap
+    /// checks); compose <see cref="OverlapAvoidingPlacement"/> / <see cref="BiomeFilteredPlacement"/>
+    /// for the typical spawn path.
+    /// </summary>
+    public Creature Spawn(
+        Vector3 desiredPosition,
+        ICreatureFactory factory,
+        IPlacementStrategy? placement = null,
+        CreatureTraits? traits = null,
+        IMovementMode? movement = null,
+        Drives? drives = null)
+    {
+        traits ??= CreatureTraits.Default;
+        drives ??= Drives.Default;
+        placement ??= ArenaClampPlacement.Instance;
+
+        var ctx = new PlacementContext(Arena, Entities, Rng);
+        var position = placement.Place(desiredPosition, traits, ctx);
+        var creature = factory.Create(position, traits, movement, drives, ctx);
+        Entities.Add(creature);
+        return creature;
+    }
+
+    // ---- convenience wrappers (delegate to Spawn) ----
+
+    /// <summary>
+    /// Spawn a blob with a random pastel color at the given position, avoiding overlap
+    /// (the original <c>SpawnBlob</c> behavior).
     /// </summary>
     public Blob SpawnBlob(Vector3 position) => SpawnBlob(position, traits: null, drives: null);
 
     /// <summary>
-    /// Spawn a blob with explicit traits and/or temperament — the seam for tailored creatures
-    /// (e.g. the sheep) without disturbing the random-blob path. Null <paramref name="traits"/>
-    /// uses <see cref="Blob.DefaultBlobTraits"/>; null <paramref name="drives"/> rolls a random
-    /// temperament (so the plain <see cref="SpawnBlob(Vector3)"/> behavior is unchanged). The
-    /// caller assigns a <see cref="Creature.Body"/> body plan afterward.
+    /// Spawn a blob with explicit traits and/or drives, avoiding overlap.
     /// </summary>
     public Blob SpawnBlob(Vector3 position, CreatureTraits? traits, Drives? drives)
-    {
-        traits ??= Blob.DefaultBlobTraits;
-        float radius = traits.Radius;
-        var clamped = Arena.Clamp(position, radius);
-
-        // Avoid overlapping existing entities
-        float minDist = radius * 2f;
-        for (int attempt = 0; attempt < 10; attempt++)
-        {
-            if (!OverlapsAny(clamped, minDist))
-                break;
-
-            // Try a random position within the arena
-            float rx = (float)(Rng.NextDouble() * (Arena.MaxX - Arena.MinX - radius * 2) + Arena.MinX + radius);
-            float rz = (float)(Rng.NextDouble() * (Arena.MaxZ - Arena.MinZ - radius * 2) + Arena.MinZ + radius);
-            clamped = new Vector3(rx, 0f, rz);
-        }
-
-        var (r, g, b) = Blob.RandomPastelColor(Rng);
-        var blob = new Blob(clamped, r, g, b, Rng, traits: traits, drives: drives ?? Drives.Randomized(Rng));
-        blob.Brain = new UtilityBrain(Behavior);
-        Entities.Add(blob);
-        return blob;
-    }
+        => (Blob)Spawn(position,
+               new BlobFactory(Behavior, Rng),
+               new OverlapAvoidingPlacement(ArenaClampPlacement.Instance),
+               traits ?? Blob.DefaultBlobTraits,
+               null,
+               drives ?? Drives.Randomized(Rng));
 
     /// <summary>
-    /// Spawn a new creature at the given position with the specified movement
-    /// strategy. The position is clamped to arena bounds (with radius margin)
-    /// and retried up to 10 times if it overlaps an existing entity.
-    /// If <paramref name="traits"/> is null, <see cref="CreatureTraits.Default"/>
-    /// is used. If <paramref name="movement"/> is null, <see cref="WalkMode"/>
-    /// is used.
+    /// Spawn a Creature with the given movement strategy, avoiding overlap.
     /// </summary>
     public Creature SpawnCreature(
         Vector3 position,
         CreatureTraits? traits = null,
         IMovementMode? movement = null)
-    {
-        traits ??= CreatureTraits.Default;
-        movement ??= new WalkMode();
-        float radius = traits.Radius;
-        var clamped = Arena.Clamp(position, radius);
-
-        float minDist = radius * 2f;
-        for (int attempt = 0; attempt < 10; attempt++)
-        {
-            if (!OverlapsAny(clamped, minDist))
-                break;
-
-            float rx = (float)(Rng.NextDouble() * (Arena.MaxX - Arena.MinX - radius * 2) + Arena.MinX + radius);
-            float rz = (float)(Rng.NextDouble() * (Arena.MaxZ - Arena.MinZ - radius * 2) + Arena.MinZ + radius);
-            clamped = new Vector3(rx, clamped.Y, rz);
-        }
-
-        var creature = new Creature(clamped, traits, movement);
-        Entities.Add(creature);
-        return creature;
-    }
+        => Spawn(position,
+               BaseCreatureFactory.Instance,
+               new OverlapAvoidingPlacement(ArenaClampPlacement.Instance),
+               traits,
+               movement,
+               null);
 
     /// <summary>
-    /// Spawn the player-controlled avatar at the given position. It's a <see cref="Blob"/>
-    /// (so it reuses the blob visual) but with a distinctive gold color, a faster
-    /// <see cref="CreatureTraits.MaxSpeed"/> than grazing blobs, and <see cref="Creature.Brain"/>
-    /// left null — the sim therefore skips AI decisions and need updates for it. Its movement
-    /// comes from the returned <see cref="PlayerInputMode"/>, which the IO layer feeds each
-    /// frame. Placement reuses the same overlap/clamp retry as <see cref="SpawnBlob"/>.
+    /// Spawn the player avatar: gold color, PlayerInputMode, no brain, avoiding overlap.
     /// </summary>
     public (Blob Player, PlayerInputMode Input) SpawnPlayer(Vector3 position)
     {
         var traits = new CreatureTraits(Blob.DefaultBlobTraits) { MaxSpeed = 2.0f };
-        float radius = traits.Radius;
-        var clamped = Arena.Clamp(position, radius);
-
-        float minDist = radius * 2f;
-        for (int attempt = 0; attempt < 10; attempt++)
-        {
-            if (!OverlapsAny(clamped, minDist))
-                break;
-
-            float rx = (float)(Rng.NextDouble() * (Arena.MaxX - Arena.MinX - radius * 2) + Arena.MinX + radius);
-            float rz = (float)(Rng.NextDouble() * (Arena.MaxZ - Arena.MinZ - radius * 2) + Arena.MinZ + radius);
-            clamped = new Vector3(rx, 0f, rz);
-        }
-
-        // Bright gold so the avatar reads as "you" against the pastel blobs.
-        var input = new PlayerInputMode();
-        var player = new Blob(clamped, 1f, 0.84f, 0.2f, Rng, traits: traits)
-        {
-            Movement = input,
-        };
-        Entities.Add(player);
-        return (player, input);
+        var creature = Spawn(position,
+                             PlayerFactory.Instance,
+                             new OverlapAvoidingPlacement(ArenaClampPlacement.Instance),
+                             traits);
+        var blob = (Blob)creature;
+        return (blob, (PlayerInputMode)blob.Movement);
     }
 
-    private bool OverlapsAny(Vector3 position, float minDist)
-    {
-        foreach (var entity in Entities)
-        {
-            if ((entity.Position - position).Length() < minDist)
-                return true;
-        }
-        return false;
-    }
+    // ---- food ----
 
     /// <summary>
     /// Scatter initial food across the arena. The attempt count scales with arena area and
