@@ -158,9 +158,24 @@ public partial class VivariumMain : Node3D
                 var sheepDiet = new HashSet<string> { "berries" };
                 for (int i = 0; i < 12; i++)
                 {
-                    float ox = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
-                    float oz = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
-                    var pos = new SNVector3(herdPos.X + ox, herdPos.Y, herdPos.Z + oz);
+                    // Jitter within a 2-unit radius; retry if the candidate lands
+                    // outside the Plains biome. The cell center is only 0.5 units from
+                    // its edge, so a 2-unit jitter easily spills into adjacent biomes.
+                    // Fall back to the guaranteed-Plains herd center if all retries fail.
+                    SNVector3 pos;
+                    for (int retry = 0; retry < 20; retry++)
+                    {
+                        float ox = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
+                        float oz = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
+                        var candidate = new SNVector3(herdPos.X + ox, herdPos.Y, herdPos.Z + oz);
+                        if (mapView.Map.BiomeAt(candidate) == Biome.Plains)
+                        {
+                            pos = candidate;
+                            goto spawn;
+                        }
+                    }
+                    pos = herdPos; // fallback: guaranteed Plains cell center
+                spawn:
                     var sheep = _sim.SpawnBlob(pos, new CreatureTraits(sheepTraits), new Drives(sheepDrives));
                     sheep.Body = _sheepPlan;
                     sheep.Diet = sheepDiet;
