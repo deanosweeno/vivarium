@@ -128,34 +128,43 @@ public partial class VivariumMain : Node3D
             blob.Body = _sproutPlan;
         }
 
-        // --- Sheep herd: Plains only, berries diet, 12-strong ---
+        // --- Sheep herd: Plains only, berries diet, 12 strong ---
+        // Spawn in a tight cluster so flocking (≥2 neighbors within 5 units) engages from
+        // frame one. Pick one random Plains cell center, jitter each sheep 0–2 units around it.
         if (mapView?.Map != null && _sheepPlan != null)
         {
-            var sheepPositions = SampleBiomePositions(mapView.Map, Biome.Plains, 12, _sim.Rng);
-            var sheepTraits = new CreatureTraits
+            var herdCenter = PickBiomeCenter(mapView.Map, Biome.Plains, _sim.Rng);
+            if (herdCenter.HasValue)
             {
-                Radius = 0.6f,
-                MaxSpeed = 0.35f,
-                JumpHeight = 2.2f,
-                TurnRate = 1.8f,
-                Acceleration = 1.6f,
-                GravityScale = 0f,
-            };
-            var sheepDrives = new Drives
-            {
-                Curiosity = 0.3f,
-                Fear = 0.15f,
-                Sociability = 0.9f,
-                Appetite = 0.6f,
-                Aggression = 0.1f,
-                PlayCuddle = 0.3f,
-            };
-            var sheepDiet = new HashSet<string> { "berries" };
-            foreach (var pos in sheepPositions)
-            {
-                var sheep = _sim.SpawnBlob(pos, new CreatureTraits(sheepTraits), new Drives(sheepDrives));
-                sheep.Body = _sheepPlan;
-                sheep.Diet = sheepDiet;
+                var herdPos = herdCenter.Value;
+                var sheepTraits = new CreatureTraits
+                {
+                    Radius = 0.6f,
+                    MaxSpeed = 0.35f,
+                    JumpHeight = 2.2f,
+                    TurnRate = 1.8f,
+                    Acceleration = 1.6f,
+                    GravityScale = 0f,
+                };
+                var sheepDrives = new Drives
+                {
+                    Curiosity = 0.3f,
+                    Fear = 0.15f,
+                    Sociability = 0.9f,
+                    Appetite = 0.6f,
+                    Aggression = 0.1f,
+                    PlayCuddle = 0.3f,
+                };
+                var sheepDiet = new HashSet<string> { "berries" };
+                for (int i = 0; i < 12; i++)
+                {
+                    float ox = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
+                    float oz = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
+                    var pos = new SNVector3(herdPos.X + ox, herdPos.Y, herdPos.Z + oz);
+                    var sheep = _sim.SpawnBlob(pos, new CreatureTraits(sheepTraits), new Drives(sheepDrives));
+                    sheep.Body = _sheepPlan;
+                    sheep.Diet = sheepDiet;
+                }
             }
         }
 
@@ -295,14 +304,12 @@ public partial class VivariumMain : Node3D
     }
 
     /// <summary>
-    /// Return up to <paramref name="count"/> random world positions inside cells of the given
-    /// <paramref name="biome"/>. Positions land on terrain height (<see cref="MapData.HeightAt"/>).
-    /// If no cells of that biome exist, returns an empty list.
+    /// Pick one random cell of the given <paramref name="biome"/> and return its world center
+    /// (with terrain height). Returns null if no cell of that biome exists.
     /// </summary>
-    private static List<System.Numerics.Vector3> SampleBiomePositions(
-        MapData map, Biome biome, int count, System.Random rng)
+    private static System.Numerics.Vector3? PickBiomeCenter(
+        MapData map, Biome biome, System.Random rng)
     {
-        // Collect all cell coordinates that belong to the requested biome.
         var cells = new List<(int cx, int cz)>();
         for (int cz = 0; cz < map.Depth; cz++)
         for (int cx = 0; cx < map.Width; cx++)
@@ -311,19 +318,12 @@ public partial class VivariumMain : Node3D
                 cells.Add((cx, cz));
         }
 
-        var result = new List<System.Numerics.Vector3>();
-        if (cells.Count == 0) return result;
+        if (cells.Count == 0) return null;
 
-        float halfCell = map.CellSize / 2f;
-        for (int i = 0; i < count; i++)
-        {
-            var (cx, cz) = cells[rng.Next(cells.Count)];
-            float px = map.CellSize * (cx - map.Width / 2f + (float)rng.NextDouble());
-            float pz = map.CellSize * (cz - map.Depth / 2f + (float)rng.NextDouble());
-            float py = map.HeightAt(new System.Numerics.Vector3(px, 0f, pz));
-            result.Add(new System.Numerics.Vector3(px, py, pz));
-        }
-        return result;
+        var (pickCx, pickCz) = cells[rng.Next(cells.Count)];
+        var center = map.CellToWorldCenter(pickCx, pickCz);
+        float py = map.HeightAt(center);
+        return new System.Numerics.Vector3(center.X, py, center.Z);
     }
 
     private MapView? FindMapView()
