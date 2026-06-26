@@ -164,8 +164,9 @@ public partial class VivariumMain : Node3D
                     PlayCuddle = 0.3f,
                 };
                 var sheepDiet = new HashSet<string> { "berries" };
-                var sheepPlacement = new OverlapAvoidingPlacement(
-                    new BiomeFilteredPlacement(ArenaClampPlacement.Instance, mapView.Map, Biome.Plains));
+                var sheepPlacement = new BiomeFilteredPlacement(
+                    new OverlapAvoidingPlacement(ArenaClampPlacement.Instance),
+                    mapView.Map, Biome.Plains);
                 for (int i = 0; i < 12; i++)
                 {
                     float ox = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
