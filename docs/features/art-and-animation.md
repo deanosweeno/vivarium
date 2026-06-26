@@ -100,6 +100,27 @@ steady), terrain-trip threshold.
 - **Lighting ↔ time/weather:** toon shader should respond to day/night & weather
   ([ecology](ecology.md); see lighting/GI work in [archive/](../archive/)).
 
+## Implemented — v1 socket-puppet body plan
+
+The first creature ("Sprout") ships as the **socket-only puppet** fallback (no Blender/glTF
+yet), as a creature-first step toward the full rig. The body description is **data in `core/`**
+(pure C#, deterministic, geneifiable), the animation is **cosmetic in `scripts/`**:
+
+- `core/body/` — `BodyPlan` = ordered `BodyPart`s (`PartSlot`, `ShapePrimitive`, size, socket,
+  tint hex, `AnimRole`, oscillator phase/freq) + `BaseScale` + pastel palette. `CreatureCatalog`
+  loads `assets/creatures.json` (mirrors `FoodCatalog`/`BiomeCatalog`). This is the data shape a
+  future `Expressor` (genotype→phenotype) will emit — `PartSlot`→`PartGene.slot`,
+  shape/size/tint/socket→`mesh`/`visualMods`.
+- `Creature.Body` holds the plan; `Creature.FocusPosition` (set by the `Simulator` from senses)
+  exposes the AI's current focus target for look-at.
+- `scripts/CreatureVisual.cs` assembles a `MeshInstance3D` per part at its socket (shaded
+  StandardMaterial3D so parts read as 3D form; unify-lerp toward the primary tint), and drives
+  **layer-2(a)** animation: face-heading turn, body squash/stretch + bob, limb/tail oscillators,
+  head/eye look-at toward `FocusPosition`. Cosmetic only — never feeds back into the sim.
+
+Next deepening (per [../research/procedural-animation.md](../research/procedural-animation.md)
+open decision): keep tuning (a) jiggle+squash, then decide on (b) chunk-soft core / Blender rig.
+
 ## Open / for later
 - Exact superset skeleton bone layout & slot→bone mapping.
 - Retargeting for wildly different proportions (tiny vs huge, many limbs).

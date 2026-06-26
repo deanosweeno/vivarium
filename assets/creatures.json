@@ -1,0 +1,18 @@
+[
+  {
+    "Id": "sprout",
+    "Name": "Sprout",
+    "BaseScale": 1.0,
+    "PrimaryHex": "#A8D8B0",
+    "SecondaryHex": "#7FB89A",
+    "Parts": [
+      { "Slot": "Core",       "Shape": "Capsule",  "Size": [0.50, 0.70, 0.50], "Socket": [0.00, 0.45, 0.00], "Tint": "#A8D8B0", "Role": "Body" },
+      { "Slot": "Head",       "Shape": "Sphere",   "Size": [0.42, 0.42, 0.42], "Socket": [0.00, 0.95, 0.06], "Tint": "#B6E2BC", "Role": "Head" },
+      { "Slot": "Eyes",       "Shape": "Sphere",   "Size": [0.11, 0.11, 0.11], "Socket": [-0.13, 1.02, 0.30], "Tint": "#2E2E33", "Role": "Eye" },
+      { "Slot": "Eyes",       "Shape": "Sphere",   "Size": [0.11, 0.11, 0.11], "Socket": [0.13, 1.02, 0.30],  "Tint": "#2E2E33", "Role": "Eye" },
+      { "Slot": "Locomotion", "Shape": "Capsule",  "Size": [0.13, 0.34, 0.13], "Socket": [-0.18, 0.16, 0.02], "Tint": "#7FB89A", "Role": "Limb", "Phase": 0.0,    "Freq": 7.0 },
+      { "Slot": "Locomotion", "Shape": "Capsule",  "Size": [0.13, 0.34, 0.13], "Socket": [0.18, 0.16, 0.02],  "Tint": "#7FB89A", "Role": "Limb", "Phase": 3.1416, "Freq": 7.0 },
+      { "Slot": "Tail",       "Shape": "Cylinder", "Size": [0.10, 0.40, 0.10], "Socket": [0.00, 0.42, -0.34], "Tint": "#7FB89A", "Role": "Tail", "Phase": 0.0,    "Freq": 3.5 }
+    ]
+  }
+]

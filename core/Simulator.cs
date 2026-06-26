@@ -255,6 +255,7 @@ public sealed class Simulator
             {
                 var senses = BuildSenses(entity);
                 entity.Brain.Tick(delta, entity, senses, Rng);
+                entity.FocusPosition = ResolveFocus(entity.Brain.Current?.Steering, senses);
             }
 
             // 2. Movement tick (steer toward DesiredVelocity + wall bounce)
@@ -391,6 +392,25 @@ public sealed class Simulator
             Fatigue = self.Needs.Fatigue,
             Boredom = self.Needs.Boredom,
         };
+    }
+
+    /// <summary>
+    /// What the creature is looking at, given its active steering and current senses:
+    /// food while foraging, the neighbor while approaching/fleeing, otherwise nothing.
+    /// Cosmetic only — consumed by the visual layer's head/eye look-at.
+    /// </summary>
+    private static Vector3? ResolveFocus(SteeringKind? steering, in SenseContext senses)
+    {
+        switch (steering)
+        {
+            case SteeringKind.Forage when senses.HasFood:
+                return senses.FoodPosition;
+            case SteeringKind.Approach when senses.HasNeighbor:
+            case SteeringKind.Flee when senses.HasNeighbor:
+                return senses.NeighborPosition;
+            default:
+                return null;
+        }
     }
 
     /// <summary>

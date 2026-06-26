@@ -8,7 +8,7 @@
     <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Remove="core/*Tests.cs" />
+    <Compile Remove="core/**/*Tests.cs" />
     <!-- tools/ is a separate console project; don't compile it into the game. -->
     <Compile Remove="tools/**/*.cs" />
   </ItemGroup>

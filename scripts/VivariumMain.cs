@@ -11,11 +11,13 @@ public partial class VivariumMain : Node3D
     [Export] private PackedScene? _blobScene;
     [Export] private PackedScene? _foodScene;
     [Export] private string _foodsPath = "res://assets/foods.json";
+    [Export] private string _creaturesPath = "res://assets/creatures.json";
     [Export] private Camera3D? _camera;
     [Export] private int _seed;
 
     private Simulator _sim = null!;
-    private readonly Dictionary<Blob, BlobVisual> _visuals = new();
+    private BodyPlan? _sproutPlan;
+    private readonly Dictionary<Blob, CreatureVisual> _visuals = new();
     private readonly Dictionary<FoodItem, FoodVisual> _foodVisuals = new();
 
     private Blob? _player;
@@ -105,17 +107,20 @@ public partial class VivariumMain : Node3D
         _sim.Foods = LoadFoods(_foodsPath);
         _sim.SeedFood();
 
-        _blobScene ??= ResourceLoader.Load<PackedScene>("res://scenes/Blob.tscn");
+        // Load the creature body-plan catalog; the first creature is "sprout".
+        _sproutPlan = LoadCreatures(_creaturesPath).Get("sprout");
+
         _foodScene ??= ResourceLoader.Load<PackedScene>("res://scenes/Food.tscn");
 
-        // Spawn a handful of blobs scattered across the arena.
+        // Spawn a handful of creatures scattered across the arena, each given the Sprout body.
         float spawnHalfX = arenaWidth / 2f - 1f;
         float spawnHalfZ = arenaDepth / 2f - 1f;
         for (int i = 0; i < 8; i++)
         {
             var x = (float)(_sim.Rng.NextDouble() * 2 - 1) * spawnHalfX;
             var z = (float)(_sim.Rng.NextDouble() * 2 - 1) * spawnHalfZ;
-            _sim.SpawnBlob(new SNVector3(x, 0f, z));
+            var blob = _sim.SpawnBlob(new SNVector3(x, 0f, z));
+            blob.Body = _sproutPlan;
         }
 
         // Spawn the player avatar at the arena center and point the follow-camera at it.
@@ -138,16 +143,12 @@ public partial class VivariumMain : Node3D
 
             if (!_visuals.TryGetValue(blob, out var visual))
             {
-                if (_blobScene == null) continue;
-                var instance = _blobScene.Instantiate<BlobVisual>();
+                var instance = new CreatureVisual();
                 AddChild(instance);
                 instance.Init(blob);
                 _visuals[blob] = instance;
             }
-            else
-            {
-                visual.SyncFromModel();
-            }
+            // CreatureVisual animates itself in _Process; no per-frame sync needed here.
         }
 
         // Player visual — lazy-instantiate on first frame, sync every frame after.
@@ -231,6 +232,29 @@ public partial class VivariumMain : Node3D
         {
             GD.PrintErr($"VivariumMain: failed to parse foods at '{path}': {e.Message}; no food.");
             return FoodCatalog.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Load the creature body-plan catalog through Godot's FileAccess (string seam, works
+    /// inside an exported .pck). Falls back to an empty catalog if the file is missing.
+    /// </summary>
+    private static CreatureCatalog LoadCreatures(string path)
+    {
+        using var file = FileAccess.Open(path, FileAccess.ModeFlags.Read);
+        if (file == null)
+        {
+            GD.PrintErr($"VivariumMain: could not open creatures at '{path}' ({FileAccess.GetOpenError()}); no body plans.");
+            return CreatureCatalog.Empty;
+        }
+        try
+        {
+            return CreatureCatalog.Parse(file.GetAsText());
+        }
+        catch (System.Exception e)
+        {
+            GD.PrintErr($"VivariumMain: failed to parse creatures at '{path}': {e.Message}; no body plans.");
+            return CreatureCatalog.Empty;
         }
     }
 

@@ -30,6 +30,17 @@ public class CreatureTests
     }
 
     [Fact]
+    public void BodyAndFocus_DefaultNull_AndRoundTrip()
+    {
+        var creature = new Creature(Vector3.Zero, null, new StubMovement());
+        Assert.Null(creature.Body);
+        Assert.Null(creature.FocusPosition);
+
+        creature.Body = new BodyPlan { Id = "sprout" };
+        Assert.Equal("sprout", creature.Body.Id);
+    }
+
+    [Fact]
     public void Constructor_StartsWithZeroVelocity()
     {
         var creature = new Creature(Vector3.Zero, null, new StubMovement());

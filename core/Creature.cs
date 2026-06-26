@@ -51,6 +51,21 @@ public class Creature
     public CreatureNeeds Needs { get; }
 
     /// <summary>
+    /// The creature's tailored body description — primitive parts at sockets, palette, scale.
+    /// Read by the engine's CreatureVisual to assemble + procedurally animate the creature.
+    /// Null = no body plan (falls back to the legacy cube visual). The data seed of the future
+    /// genotype→phenotype output; sim logic does not depend on it.
+    /// </summary>
+    public BodyPlan? Body { get; set; }
+
+    /// <summary>
+    /// World point the creature is currently attending to (nearest neighbor/food when the
+    /// active action is Approach/Flee/Forage), or null. Cosmetic only — drives head/eye
+    /// look-at in the visual layer so creatures appear to "think". Set by the Simulator.
+    /// </summary>
+    public Vector3? FocusPosition { get; internal set; }
+
+    /// <summary>
     /// Steering target set by <see cref="Brain"/> each tick; the <see cref="Movement"/>
     /// layer accelerates toward it. Zero when the creature should stand still.
     /// </summary>
