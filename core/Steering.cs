@@ -33,6 +33,14 @@ public static class Steering
         return d / dist * speed;
     }
 
+    /// <summary>
+    /// Steer toward the herd's centroid, easing to a stop within <paramref name="slowRadius"/>
+    /// (reuses <see cref="Arrive"/>). The slow radius is the cohesion damper: it keeps the herd a
+    /// loose moving clump instead of collapsing every member onto a single point.
+    /// </summary>
+    public static Vector3 Cohesion(Vector3 self, Vector3 centroid, float maxSpeed, float slowRadius)
+        => Arrive(self, centroid, maxSpeed, slowRadius);
+
     /// <summary>Move along a precomputed (already-normalized) direction at full speed.</summary>
     public static Vector3 Along(Vector3 direction, float maxSpeed)
         => direction.LengthSquared() > 1e-8f ? Vector3.Normalize(Flatten(direction)) * maxSpeed : Vector3.Zero;

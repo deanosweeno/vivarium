@@ -124,6 +124,13 @@ public sealed class UtilityBrain
                     ? Steering.Arrive(self.Position, senses.FoodPosition, maxSpeed, self.Traits.Radius * 2f)
                     : Wander(delta, maxSpeed, rng);
 
+            case SteeringKind.Flock:
+                // Cohere toward the herd centroid; ease to a stop a few body-radii out so the
+                // group stays a loose clump. No herd sensed → wander to look for one.
+                return senses.HasHerd
+                    ? Steering.Cohesion(self.Position, senses.HerdCentroid, maxSpeed, self.Traits.Radius * 4f)
+                    : Wander(delta, maxSpeed, rng);
+
             case SteeringKind.Wander:
             default:
                 return Wander(delta, maxSpeed, rng);

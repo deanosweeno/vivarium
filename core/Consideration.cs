@@ -15,6 +15,8 @@ public enum InputKind
     Boredom,
     /// <summary>How close the nearest available food is: 1 touching, 0 at/over sense radius (or none).</summary>
     FoodProximity,
+    /// <summary>1 when a herd (≥2 neighbors) is within sense radius, else 0. For Flock.</summary>
+    HerdPresence,
 }
 
 /// <summary>Which <see cref="Drives"/> weight scales a consideration (or none).</summary>
@@ -53,6 +55,7 @@ public sealed class Consideration
         InputKind.Hunger => ctx.Hunger,
         InputKind.Boredom => ctx.Boredom,
         InputKind.FoodProximity => ctx.FoodProximity,
+        InputKind.HerdPresence => ctx.HasHerd ? 1f : 0f,
         _ => 0f,
     };
 

@@ -130,5 +130,19 @@ public sealed class BehaviorConfig
                     Curve = new ResponseCurve { Type = CurveType.Power, Exponent = 2f } },
             ],
         },
+
+        // Flock — herd cohesion. Fires when a herd (≥2 neighbors) is in range, scaled by
+        // Sociability. BaseWeight sits between Wander (0.25) and Forage (0.9) so a sociable
+        // creature prefers staying with the group over idle roaming, but hunger/fear still win.
+        new BehaviorAction
+        {
+            Name = "Flock",
+            Steering = SteeringKind.Flock,
+            BaseWeight = 0.6f,
+            Considerations =
+            [
+                new Consideration { Input = InputKind.HerdPresence, Drive = DriveKind.Sociability },
+            ],
+        },
     ];
 }

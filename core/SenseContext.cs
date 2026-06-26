@@ -25,6 +25,15 @@ public readonly struct SenseContext
     /// <summary>1 when a neighbor is touching, 0 at/beyond sense radius (or none). For Approach/Flee.</summary>
     public float NeighborProximity { get; init; }
 
+    /// <summary>Whether two or more other creatures are within sense radius (a herd to cohere to).</summary>
+    public bool HasHerd { get; init; }
+
+    /// <summary>
+    /// Average position of all neighbors within sense radius (valid only when <see cref="HasHerd"/>).
+    /// The point a flocking creature steers toward — see <see cref="Steering.Cohesion"/>.
+    /// </summary>
+    public Vector3 HerdCentroid { get; init; }
+
     /// <summary>Whether any available food item is within sense radius. For Forage.</summary>
     public bool HasFood { get; init; }
 

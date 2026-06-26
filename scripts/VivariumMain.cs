@@ -17,6 +17,7 @@ public partial class VivariumMain : Node3D
 
     private Simulator _sim = null!;
     private BodyPlan? _sproutPlan;
+    private BodyPlan? _sheepPlan;
     private readonly Dictionary<Blob, CreatureVisual> _visuals = new();
     private readonly Dictionary<FoodItem, FoodVisual> _foodVisuals = new();
 
@@ -107,20 +108,55 @@ public partial class VivariumMain : Node3D
         _sim.Foods = LoadFoods(_foodsPath);
         _sim.SeedFood();
 
-        // Load the creature body-plan catalog; the first creature is "sprout".
-        _sproutPlan = LoadCreatures(_creaturesPath).Get("sprout");
+        // Load the creature body-plan catalog.
+        var creatures = LoadCreatures(_creaturesPath);
+        _sproutPlan = creatures.Get("sprout");
+        _sheepPlan = creatures.Get("sheep");
 
         _foodScene ??= ResourceLoader.Load<PackedScene>("res://scenes/Food.tscn");
 
-        // Spawn a handful of creatures scattered across the arena, each given the Sprout body.
+        // Spawn a handful of creatures scattered across the arena.
         float spawnHalfX = arenaWidth / 2f - 1f;
         float spawnHalfZ = arenaDepth / 2f - 1f;
-        for (int i = 0; i < 8; i++)
+
+        // A few Sprouts (random temperament) keep the original creature in the mix.
+        for (int i = 0; i < 4; i++)
         {
             var x = (float)(_sim.Rng.NextDouble() * 2 - 1) * spawnHalfX;
             var z = (float)(_sim.Rng.NextDouble() * 2 - 1) * spawnHalfZ;
             var blob = _sim.SpawnBlob(new SNVector3(x, 0f, z));
             blob.Body = _sproutPlan;
+        }
+
+        // --- Sheep herd: Plains only, berries diet, 12-strong ---
+        if (mapView?.Map != null && _sheepPlan != null)
+        {
+            var sheepPositions = SampleBiomePositions(mapView.Map, Biome.Plains, 12, _sim.Rng);
+            var sheepTraits = new CreatureTraits
+            {
+                Radius = 0.6f,
+                MaxSpeed = 0.35f,
+                JumpHeight = 2.2f,
+                TurnRate = 1.8f,
+                Acceleration = 1.6f,
+                GravityScale = 0f,
+            };
+            var sheepDrives = new Drives
+            {
+                Curiosity = 0.3f,
+                Fear = 0.15f,
+                Sociability = 0.9f,
+                Appetite = 0.6f,
+                Aggression = 0.1f,
+                PlayCuddle = 0.3f,
+            };
+            var sheepDiet = new HashSet<string> { "berries" };
+            foreach (var pos in sheepPositions)
+            {
+                var sheep = _sim.SpawnBlob(pos, new CreatureTraits(sheepTraits), new Drives(sheepDrives));
+                sheep.Body = _sheepPlan;
+                sheep.Diet = sheepDiet;
+            }
         }
 
         // Spawn the player avatar at the arena center and point the follow-camera at it.
@@ -256,6 +292,38 @@ public partial class VivariumMain : Node3D
             GD.PrintErr($"VivariumMain: failed to parse creatures at '{path}': {e.Message}; no body plans.");
             return CreatureCatalog.Empty;
         }
+    }
+
+    /// <summary>
+    /// Return up to <paramref name="count"/> random world positions inside cells of the given
+    /// <paramref name="biome"/>. Positions land on terrain height (<see cref="MapData.HeightAt"/>).
+    /// If no cells of that biome exist, returns an empty list.
+    /// </summary>
+    private static List<System.Numerics.Vector3> SampleBiomePositions(
+        MapData map, Biome biome, int count, System.Random rng)
+    {
+        // Collect all cell coordinates that belong to the requested biome.
+        var cells = new List<(int cx, int cz)>();
+        for (int cz = 0; cz < map.Depth; cz++)
+        for (int cx = 0; cx < map.Width; cx++)
+        {
+            if (map.GetBiome(cx, cz) == biome)
+                cells.Add((cx, cz));
+        }
+
+        var result = new List<System.Numerics.Vector3>();
+        if (cells.Count == 0) return result;
+
+        float halfCell = map.CellSize / 2f;
+        for (int i = 0; i < count; i++)
+        {
+            var (cx, cz) = cells[rng.Next(cells.Count)];
+            float px = map.CellSize * (cx - map.Width / 2f + (float)rng.NextDouble());
+            float pz = map.CellSize * (cz - map.Depth / 2f + (float)rng.NextDouble());
+            float py = map.HeightAt(new System.Numerics.Vector3(px, 0f, pz));
+            result.Add(new System.Numerics.Vector3(px, py, pz));
+        }
+        return result;
     }
 
     private MapView? FindMapView()

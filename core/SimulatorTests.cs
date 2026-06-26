@@ -761,4 +761,198 @@ public class SimulatorTests
         for (int i = 0; i < a.EntityCount; i++)
             Assert.Equal(a.Entities[i].Position, b.Entities[i].Position);
     }
+
+    // -------------------------------------------------
+    // Herd cohesion (flocking)
+    // -------------------------------------------------
+
+    private static Drives HerdDrives() => new()
+    {
+        Sociability = 1f,   // strongly prefer the Flock action
+        Curiosity = 0.1f,
+        Fear = 0f,
+        Appetite = 0f,      // no foraging to pull them apart
+        Aggression = 0f,
+    };
+
+    /// <summary>Average distance of each entity from the group's centroid (a spread measure).</summary>
+    private static float SpreadAroundCentroid(Simulator sim)
+    {
+        var centroid = Vector3.Zero;
+        foreach (var e in sim.Entities) centroid += e.Position;
+        centroid /= sim.EntityCount;
+
+        float sum = 0f;
+        foreach (var e in sim.Entities)
+        {
+            var d = e.Position - centroid;
+            sum += MathF.Sqrt(d.X * d.X + d.Z * d.Z);
+        }
+        return sum / sim.EntityCount;
+    }
+
+    [Fact]
+    public void Herd_SociableCreatures_CohereOverTime()
+    {
+        var sim = new Simulator(Arena.GroundArena(20, 20), seed: 99);
+
+        // Four sociable creatures spread out but within sense radius (5) of the group.
+        sim.SpawnBlob(new Vector3(-3, 0, -3), traits: null, drives: HerdDrives());
+        sim.SpawnBlob(new Vector3(3, 0, -3), traits: null, drives: HerdDrives());
+        sim.SpawnBlob(new Vector3(-3, 0, 3), traits: null, drives: HerdDrives());
+        sim.SpawnBlob(new Vector3(3, 0, 3), traits: null, drives: HerdDrives());
+
+        float before = SpreadAroundCentroid(sim);
+        for (int i = 0; i < 120; i++) sim.Tick(0.1);
+        float after = SpreadAroundCentroid(sim);
+
+        Assert.True(after < before,
+            $"sociable herd should tighten: spread {before:F2} → {after:F2}");
+    }
+
+    [Fact]
+    public void Herd_SenseReportsCentroid_DrivesFlockSteering()
+    {
+        // Two stationary neighbors flanking a sociable creature → it should steer toward their
+        // midpoint (the herd centroid), i.e. develop a positive desired velocity toward +X=0,Z=0.
+        var sim = new Simulator(Arena.GroundArena(20, 20), seed: 1);
+        var self = sim.SpawnBlob(new Vector3(-4, 0, 0), traits: null, drives: HerdDrives());
+        sim.SpawnBlob(new Vector3(0, 0, 2), traits: null, drives: HerdDrives());
+        sim.SpawnBlob(new Vector3(0, 0, -2), traits: null, drives: HerdDrives());
+
+        for (int i = 0; i < 5; i++) sim.Tick(0.1);
+
+        Assert.Equal("Flock", self.Brain!.CurrentName);
+        Assert.True(self.DesiredVelocity.X > 0f,
+            $"should steer toward the herd centroid (+X), desired={self.DesiredVelocity}");
+    }
+
+    // -------------------------------------------------
+    // Diet filtering
+    // -------------------------------------------------
+
+    private static FoodCatalog TwoFoodTypes() => FoodCatalog.Parse("""
+        [
+            { "Id": "berries",  "ColorHex": "#CC3333", "Nutrition": 0.4, "GrazeRate": 0.5, "RespawnSeconds": 5 },
+            { "Id": "cactus",   "ColorHex": "#33CC33", "Nutrition": 0.3, "GrazeRate": 0.3, "RespawnSeconds": 5 }
+        ]
+        """);
+
+    [Fact]
+    public void Diet_NoDiet_EatsAnyFood()
+    {
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Foods = TwoFoodTypes(),
+        };
+        // Place one berries and one cactus near a blob with no diet restriction.
+        sim.Food.Add(new FoodItem { Position = new Vector3(0, 0, 0), Def = sim.Foods!.Get("berries") });
+        sim.Food.Add(new FoodItem { Position = new Vector3(3, 0, 0), Def = sim.Foods.Get("cactus") });
+
+        var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+        blob.Needs.Hunger = 0.8f; // very hungry → Forage
+
+        // Blob has no diet restriction — it should graze the nearest food (berries at origin).
+        float hungerBefore = blob.Needs.Hunger;
+        for (int i = 0; i < 10; i++) sim.Tick(0.1);
+
+        Assert.True(blob.Needs.Hunger < hungerBefore, "blob with no diet should have grazed");
+    }
+
+    [Fact]
+    public void Diet_Restricted_EatsOnlyAllowedFood()
+    {
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Foods = TwoFoodTypes(),
+        };
+        // Berries at origin, cactus at (0.1, 0, 0) — the blob is on top of berries.
+        sim.Food.Add(new FoodItem { Position = new Vector3(0, 0, 0), Def = sim.Foods!.Get("berries") });
+        sim.Food.Add(new FoodItem { Position = new Vector3(0.1f, 0, 0), Def = sim.Foods.Get("cactus") });
+
+        var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+        blob.Needs.Hunger = 0.8f;
+        blob.Diet = new HashSet<string> { "berries" };
+
+        float hungerBefore = blob.Needs.Hunger;
+        for (int i = 0; i < 10; i++) sim.Tick(0.1);
+
+        Assert.True(blob.Needs.Hunger < hungerBefore,
+            "blob with berries diet should graze the berries");
+
+        // The cactus should be untouched.
+        Assert.Equal(1f, sim.Food[1].Amount, 4);
+    }
+
+    [Fact]
+    public void Diet_Restricted_SkipsInedibleNearestFood()
+    {
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Foods = TwoFoodTypes(),
+        };
+        // Cactus is nearer, then berries within easy travel range — a berries-eater
+        // should path to and graze the berries, never touching the cactus.
+        sim.Food.Add(new FoodItem { Position = new Vector3(0.3f, 0, 0), Def = sim.Foods!.Get("cactus") });
+        sim.Food.Add(new FoodItem { Position = new Vector3(1f, 0, 0), Def = sim.Foods.Get("berries") });
+
+        var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+        blob.Needs.Hunger = 0.8f;
+        blob.Diet = new HashSet<string> { "berries" };
+
+        // 50 ticks (5 s) gives the blob time to move ~1 unit toward berries.
+        for (int i = 0; i < 50; i++) sim.Tick(0.1);
+
+        // The cactus should be untouched; only the berries should have been grazed.
+        Assert.Equal(1f, sim.Food[0].Amount, 4);
+        Assert.True(sim.Food[1].Amount < 1f,
+            "the berries should have been grazed (not the nearer cactus)");
+    }
+
+    [Fact]
+    public void Diet_Restricted_StarvesWithoutAllowedFood()
+    {
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Foods = TwoFoodTypes(),
+        };
+        // Only cactus near the blob — a berries-eater should not touch it.
+        sim.Food.Add(new FoodItem { Position = new Vector3(0, 0, 0), Def = sim.Foods!.Get("cactus") });
+
+        var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+        blob.Needs.Hunger = 0f;
+        blob.Diet = new HashSet<string> { "berries" };
+
+        float hungerBefore = blob.Needs.Hunger;
+        for (int i = 0; i < 10; i++) sim.Tick(0.1);
+
+        // Hunger should grow (from hunger gain) — the blob couldn't eat the cactus.
+        Assert.True(blob.Needs.Hunger >= hungerBefore,
+            "berries-eater should not graze cactus; hunger unchanged or up");
+        Assert.Equal(1f, sim.Food[0].Amount, 4);
+    }
+
+    [Fact]
+    public void Diet_Deterministic_SameSeedSameState()
+    {
+        static Simulator Run()
+        {
+            var sim = new Simulator(Arena.GroundArena(16, 16), seed: 99)
+            {
+                Foods = TwoFoodTypes(),
+            };
+            sim.Food.Add(new FoodItem { Position = new Vector3(0, 0, 0), Def = sim.Foods!.Get("berries") });
+            var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+            blob.Diet = new HashSet<string> { "berries" };
+            sim.Tick(0.1);
+            return sim;
+        }
+
+        var a = Run();
+        var b = Run();
+
+        Assert.Equal(a.Entities[0].Position, b.Entities[0].Position);
+        Assert.Equal(a.Entities[0].Velocity, b.Entities[0].Velocity);
+        Assert.Equal(a.Food[0].Amount, b.Food[0].Amount);
+    }
 }

@@ -16,6 +16,8 @@ public enum SteeringKind
     Rest,
     /// <summary>Seek and graze the nearest food (search by wandering when none is in range).</summary>
     Forage,
+    /// <summary>Cohere toward the herd centroid (search by wandering when alone).</summary>
+    Flock,
 }
 
 /// <summary>

@@ -76,9 +76,19 @@ public sealed class Simulator
     /// The position is clamped to arena bounds (with radius margin) and
     /// retried up to 10 times if it overlaps an existing entity.
     /// </summary>
-    public Blob SpawnBlob(Vector3 position)
+    public Blob SpawnBlob(Vector3 position) => SpawnBlob(position, traits: null, drives: null);
+
+    /// <summary>
+    /// Spawn a blob with explicit traits and/or temperament — the seam for tailored creatures
+    /// (e.g. the sheep) without disturbing the random-blob path. Null <paramref name="traits"/>
+    /// uses <see cref="Blob.DefaultBlobTraits"/>; null <paramref name="drives"/> rolls a random
+    /// temperament (so the plain <see cref="SpawnBlob(Vector3)"/> behavior is unchanged). The
+    /// caller assigns a <see cref="Creature.Body"/> body plan afterward.
+    /// </summary>
+    public Blob SpawnBlob(Vector3 position, CreatureTraits? traits, Drives? drives)
     {
-        float radius = Blob.DefaultBlobTraits.Radius;
+        traits ??= Blob.DefaultBlobTraits;
+        float radius = traits.Radius;
         var clamped = Arena.Clamp(position, radius);
 
         // Avoid overlapping existing entities
@@ -95,7 +105,7 @@ public sealed class Simulator
         }
 
         var (r, g, b) = Blob.RandomPastelColor(Rng);
-        var blob = new Blob(clamped, r, g, b, Rng, drives: Drives.Randomized(Rng));
+        var blob = new Blob(clamped, r, g, b, Rng, traits: traits, drives: drives ?? Drives.Randomized(Rng));
         blob.Brain = new UtilityBrain(Behavior);
         Entities.Add(blob);
         return blob;
@@ -356,9 +366,12 @@ public sealed class Simulator
     {
         float radius = Behavior.SenseRadius;
 
-        // Nearest neighbor (horizontal distance).
+        // Nearest neighbor (horizontal distance), plus the centroid of all in-range neighbors
+        // for herd cohesion. One pass over the entity list.
         Creature? nearest = null;
         float nearestDist = float.MaxValue;
+        var herdSum = Vector3.Zero;
+        int herdCount = 0;
         foreach (var other in Entities)
         {
             if (ReferenceEquals(other, self)) continue;
@@ -369,13 +382,22 @@ public sealed class Simulator
                 nearestDist = dist;
                 nearest = other;
             }
+            if (dist <= radius)
+            {
+                herdSum += other.Position;
+                herdCount++;
+            }
         }
 
         bool hasNeighbor = nearest is not null && nearestDist <= radius;
         float proximity = hasNeighbor ? 1f - nearestDist / radius : 0f;
 
-        // Nearest available food (horizontal distance).
-        var (foodItem, foodDist) = NearestFood(self.Position);
+        // A herd is two or more in-range neighbors; centroid is their average position.
+        bool hasHerd = herdCount >= 2;
+        Vector3 herdCentroid = hasHerd ? herdSum / herdCount : self.Position;
+
+        // Nearest available food this creature can eat (horizontal distance).
+        var (foodItem, foodDist) = NearestFood(self.Position, self.Diet);
         bool hasFood = foodItem is not null && foodDist <= radius;
         float foodProximity = hasFood ? 1f - foodDist / radius : 0f;
 
@@ -385,6 +407,8 @@ public sealed class Simulator
             HasNeighbor = hasNeighbor,
             NeighborPosition = nearest?.Position ?? self.Position,
             NeighborProximity = proximity,
+            HasHerd = hasHerd,
+            HerdCentroid = herdCentroid,
             HasFood = hasFood,
             FoodPosition = foodItem?.Position ?? self.Position,
             FoodProximity = foodProximity,
@@ -408,6 +432,8 @@ public sealed class Simulator
             case SteeringKind.Approach when senses.HasNeighbor:
             case SteeringKind.Flee when senses.HasNeighbor:
                 return senses.NeighborPosition;
+            case SteeringKind.Flock when senses.HasHerd:
+                return senses.HerdCentroid;
             default:
                 return null;
         }
@@ -416,14 +442,17 @@ public sealed class Simulator
     /// <summary>
     /// Nearest currently-available food item to a world position (horizontal distance), or
     /// (null, +inf) when there is none. O(food); shares the perception pass's partitioning TODO.
+    /// When <paramref name="diet"/> is non-null and non-empty, only food whose
+    /// <see cref="FoodDef.Id"/> is in the set is considered.
     /// </summary>
-    private (FoodItem? Item, float Dist) NearestFood(Vector3 from)
+    private (FoodItem? Item, float Dist) NearestFood(Vector3 from, HashSet<string>? diet = null)
     {
         FoodItem? nearest = null;
         float nearestDist = float.MaxValue;
         foreach (var item in Food)
         {
             if (!item.Available) continue;
+            if (diet is { Count: > 0 } && !diet.Contains(item.Def.Id)) continue;
             var d = item.Position - from;
             float dist = MathF.Sqrt(d.X * d.X + d.Z * d.Z);
             if (dist < nearestDist)
@@ -450,7 +479,7 @@ public sealed class Simulator
         {
             if (entity.Brain?.Current?.Steering != SteeringKind.Forage) continue;
 
-            var (item, dist) = NearestFood(entity.Position);
+            var (item, dist) = NearestFood(entity.Position, entity.Diet);
             if (item is null) continue;
 
             float eatRange = entity.Traits.Radius + FoodSpawn.EatRange;

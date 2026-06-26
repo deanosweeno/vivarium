@@ -118,6 +118,16 @@ yet), as a creature-first step toward the full rig. The body description is **da
   **layer-2(a)** animation: face-heading turn, body squash/stretch + bob, limb/tail oscillators,
   head/eye look-at toward `FocusPosition`. Cosmetic only — never feeds back into the sim.
 
+A second creature, the **Sheep**, was added on the same pipeline with no `CreatureVisual`
+changes — proof the socket-puppet assembler is data-driven. It exercises the part system harder
+than Sprout: a large round wool `Core` (sphere), a dark face `Head` + 2 `Eyes`, 2 `Surface`
+ears (static), **4 `Locomotion` legs** in a diagonal-trot phase pattern (FL/BR vs FR/BL), and a
+tiny tail nub. All proportions/colours/phases live in `assets/creatures.json`. It is slow but
+high-jumping, docile, and player-indifferent; it ships with the first **herd-cohesion** AI —
+a `Flock` action (scored by Sociability × herd-presence) steering toward the herd centroid via
+`Steering.Cohesion`, damped by the `Arrive` slow-radius and collision separation — so sheep flock
+into a loose moving clump.
+
 Next deepening (per [../research/procedural-animation.md](../research/procedural-animation.md)
 open decision): keep tuning (a) jiggle+squash, then decide on (b) chunk-soft core / Blender rig.
 

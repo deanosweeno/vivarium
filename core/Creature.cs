@@ -59,6 +59,13 @@ public class Creature
     public BodyPlan? Body { get; set; }
 
     /// <summary>
+    /// Restricts which food types this creature can sense and eat. Null (or empty) = eat
+    /// any food (the original behavior). When non-empty, the Simulator's sensing and grazing
+    /// skip food items whose <see cref="FoodDef.Id"/> is not in this set.
+    /// </summary>
+    public HashSet<string>? Diet { get; set; }
+
+    /// <summary>
     /// World point the creature is currently attending to (nearest neighbor/food when the
     /// active action is Approach/Flee/Forage), or null. Cosmetic only — drives head/eye
     /// look-at in the visual layer so creatures appear to "think". Set by the Simulator.

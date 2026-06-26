@@ -14,5 +14,25 @@
       { "Slot": "Locomotion", "Shape": "Capsule",  "Size": [0.13, 0.34, 0.13], "Socket": [0.18, 0.16, 0.02],  "Tint": "#7FB89A", "Role": "Limb", "Phase": 3.1416, "Freq": 7.0 },
       { "Slot": "Tail",       "Shape": "Cylinder", "Size": [0.10, 0.40, 0.10], "Socket": [0.00, 0.42, -0.34], "Tint": "#7FB89A", "Role": "Tail", "Phase": 0.0,    "Freq": 3.5 }
     ]
+  },
+  {
+    "Id": "sheep",
+    "Name": "Sheep",
+    "BaseScale": 1.0,
+    "PrimaryHex": "#F2EFE6",
+    "SecondaryHex": "#3A3530",
+    "Parts": [
+      { "Slot": "Core",       "Shape": "Sphere",  "Size": [0.85, 0.78, 0.95], "Socket": [0.00, 0.52, 0.00],  "Tint": "#F2EFE6", "Role": "Body" },
+      { "Slot": "Head",       "Shape": "Sphere",  "Size": [0.34, 0.36, 0.40], "Socket": [0.00, 0.58, 0.52],  "Tint": "#3A3530", "Role": "Head" },
+      { "Slot": "Eyes",       "Shape": "Sphere",  "Size": [0.08, 0.08, 0.08], "Socket": [-0.11, 0.64, 0.72], "Tint": "#161412", "Role": "Eye" },
+      { "Slot": "Eyes",       "Shape": "Sphere",  "Size": [0.08, 0.08, 0.08], "Socket": [0.11, 0.64, 0.72],  "Tint": "#161412", "Role": "Eye" },
+      { "Slot": "Surface",    "Shape": "Box",     "Size": [0.16, 0.06, 0.12], "Socket": [-0.22, 0.66, 0.50], "Tint": "#3A3530", "Role": "Static" },
+      { "Slot": "Surface",    "Shape": "Box",     "Size": [0.16, 0.06, 0.12], "Socket": [0.22, 0.66, 0.50],  "Tint": "#3A3530", "Role": "Static" },
+      { "Slot": "Locomotion", "Shape": "Capsule", "Size": [0.12, 0.40, 0.12], "Socket": [-0.26, 0.20, 0.30], "Tint": "#3A3530", "Role": "Limb", "Phase": 0.0,    "Freq": 5.0 },
+      { "Slot": "Locomotion", "Shape": "Capsule", "Size": [0.12, 0.40, 0.12], "Socket": [0.26, 0.20, 0.30],  "Tint": "#3A3530", "Role": "Limb", "Phase": 3.1416, "Freq": 5.0 },
+      { "Slot": "Locomotion", "Shape": "Capsule", "Size": [0.12, 0.40, 0.12], "Socket": [-0.26, 0.20, -0.30],"Tint": "#3A3530", "Role": "Limb", "Phase": 3.1416, "Freq": 5.0 },
+      { "Slot": "Locomotion", "Shape": "Capsule", "Size": [0.12, 0.40, 0.12], "Socket": [0.26, 0.20, -0.30], "Tint": "#3A3530", "Role": "Limb", "Phase": 0.0,    "Freq": 5.0 },
+      { "Slot": "Tail",       "Shape": "Sphere",  "Size": [0.14, 0.14, 0.14], "Socket": [0.00, 0.50, -0.56], "Tint": "#F2EFE6", "Role": "Tail", "Phase": 0.0,    "Freq": 2.5 }
+    ]
   }
 ]

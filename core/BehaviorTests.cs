@@ -118,6 +118,27 @@ public class BehaviorTests
         Assert.NotEqual(Vector3.Zero, self.DesiredVelocity);
     }
 
+    [Fact]
+    public void SociableCreature_WithHerdInRange_Flocks()
+    {
+        var brain = new UtilityBrain(new BehaviorConfig());
+        // Sociable but not curious/hungry, with a herd present but no single neighbor crowding it.
+        var self = MakeCreature(new Drives { Sociability = 1f, Curiosity = 0f, Fear = 0f, Appetite = 0f });
+        var senses = new SenseContext { HasHerd = true, HerdCentroid = new Vector3(3, 0, 0) };
+        brain.Tick(0.1, self, senses, new Random(1));
+        Assert.Equal("Flock", brain.CurrentName);
+    }
+
+    [Fact]
+    public void LoneCreature_DoesNotFlock()
+    {
+        var brain = new UtilityBrain(new BehaviorConfig());
+        // Same sociable temperament, but curious and alone → no herd to cohere to.
+        var self = MakeCreature(new Drives { Sociability = 1f, Curiosity = 1f });
+        brain.Tick(0.1, self, new SenseContext { HasHerd = false }, new Random(1));
+        Assert.NotEqual("Flock", brain.CurrentName);
+    }
+
     // ---------- stickiness (controlled two-action config) ----------
 
     private static BehaviorConfig StickyConfig() => new()
