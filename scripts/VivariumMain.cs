@@ -21,6 +21,7 @@ public partial class VivariumMain : Node3D
     private Blob? _player;
     private PlayerInputMode? _playerInput;
     private CameraOrbit? _cameraOrbit;
+    private PlayerVisual? _playerVisual;
 
     public override void _Ready()
     {
@@ -133,6 +134,7 @@ public partial class VivariumMain : Node3D
         foreach (var entity in _sim.Entities)
         {
             if (entity is not Blob blob) continue;
+            if (blob == _player) continue; // player has its own PlayerVisual
 
             if (!_visuals.TryGetValue(blob, out var visual))
             {
@@ -145,6 +147,21 @@ public partial class VivariumMain : Node3D
             else
             {
                 visual.SyncFromModel();
+            }
+        }
+
+        // Player visual — lazy-instantiate on first frame, sync every frame after.
+        if (_player != null)
+        {
+            if (_playerVisual == null)
+            {
+                _playerVisual = new PlayerVisual();
+                AddChild(_playerVisual);
+                _playerVisual.Init(_player);
+            }
+            else
+            {
+                _playerVisual.SyncFromModel();
             }
         }
 
@@ -217,18 +234,6 @@ public partial class VivariumMain : Node3D
         }
     }
 
-    public override void _Input(InputEvent @event)
-    {
-        if (_camera == null) return;
-
-        if (@event is InputEventMouseButton mb
-            && mb.ButtonIndex == MouseButton.Left
-            && mb.Pressed)
-        {
-            SpawnAtMouse(mb.Position);
-        }
-    }
-
     private MapView? FindMapView()
     {
         foreach (var child in GetChildren())
@@ -239,23 +244,4 @@ public partial class VivariumMain : Node3D
         return null;
     }
 
-    private void SpawnAtMouse(Vector2 mousePos)
-    {
-        var origin = _camera!.ProjectRayOrigin(mousePos);
-        var direction = _camera!.ProjectRayNormal(mousePos);
-
-        var plane = new Plane(Vector3.Up, 0f);
-        var hit = plane.IntersectsRay(origin, direction);
-
-        if (hit.HasValue)
-        {
-            var point = hit.Value;
-            var worldPos = new SNVector3(point.X, 0f, point.Z);
-
-            if (_sim.Arena.Contains(worldPos))
-            {
-                _sim.SpawnBlob(worldPos);
-            }
-        }
-    }
 }
