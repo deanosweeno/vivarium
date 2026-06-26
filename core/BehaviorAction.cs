@@ -18,6 +18,9 @@ public enum SteeringKind
     Forage,
     /// <summary>Cohere toward the herd centroid (search by wandering when alone).</summary>
     Flock,
+    /// <summary>Smoothly approach the nearest kin flock anchor, searching by wandering
+    /// when no kin flock is in range. Triggered after SeparationTime passes threshold.</summary>
+    SeekFlock,
 }
 
 /// <summary>

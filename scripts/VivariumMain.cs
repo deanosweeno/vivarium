@@ -21,6 +21,10 @@ public partial class VivariumMain : Node3D
     private readonly Dictionary<Blob, CreatureVisual> _visuals = new();
     private readonly Dictionary<FoodItem, FoodVisual> _foodVisuals = new();
 
+    // Debug overlay (F3 toggles)
+    private bool _showDebug;
+    private readonly Dictionary<Blob, Label3D> _debugLabels = new();
+
     private Blob? _player;
     private PlayerInputMode? _playerInput;
     private CameraOrbit? _cameraOrbit;
@@ -28,6 +32,14 @@ public partial class VivariumMain : Node3D
 
     public override void _Ready()
     {
+        // Register debug toggle action at runtime (no project.godot editing needed).
+        if (!InputMap.HasAction("debug_toggle"))
+        {
+            InputMap.AddAction("debug_toggle");
+            var debugEv = new InputEventKey { Keycode = Key.F3 };
+            InputMap.ActionAddEvent("debug_toggle", debugEv);
+        }
+
         if (_camera == null)
         {
             foreach (var child in GetChildren())
@@ -134,43 +146,50 @@ public partial class VivariumMain : Node3D
             blob.Body = _sproutPlan;
         }
 
-        // --- Sheep herd: Plains only, berries diet, 12 strong ---
-        // Spawn in a tight cluster around one Plains cell center so flocking engages
-        // from frame one. Composed placement chain: arena clamp → biome filter → overlap
-        // avoidance. The overlap retry passes through the biome filter, so constraints
-        // survive even when sheep overlap at spawn.
+        // --- Sheep herds: Plains only, berries diet ---
+        // Spawn several medium herds at separated Plains centers so the map reads as distinct
+        // flocks rather than one big clump (or lonely strays). Each herd is a tight starting
+        // cluster so flocking engages from frame one. Composed placement chain: arena clamp →
+        // biome filter → overlap avoidance — the overlap retry passes through the biome filter,
+        // so constraints survive even when sheep overlap at spawn.
         if (mapView?.Map != null && _sheepPlan != null)
         {
-            var herdCenter = PickBiomeCenter(mapView.Map, Biome.Plains, _sim.Rng);
-            if (herdCenter.HasValue)
+            const int HerdCount = 3;            // target number of separated herds
+            const float MinHerdSeparation = 18f; // min horizontal gap between herd centers
+            const float HerdJitter = 2f;        // spawn spread around a herd center
+
+            var sheepTraits = new CreatureTraits
             {
-                var herdPos = herdCenter.Value;
-                var sheepTraits = new CreatureTraits
+                Radius = 0.6f,
+                MaxSpeed = 0.6f,
+                JumpHeight = 2.2f,
+                TurnRate = 1.8f,
+                Acceleration = 1.6f,
+                GravityScale = 0f,
+            };
+            var sheepDrives = new Drives
+            {
+                Curiosity = 0.5f,
+                Fear = 0.15f,
+                Sociability = 0.9f,
+                Appetite = 0.8f,    // high enough that real hunger out-scores the 0.7 Flock hold
+                Aggression = 0.1f,
+                PlayCuddle = 0.3f,
+            };
+            var sheepDiet = new HashSet<string> { "berries" };
+            var sheepPlacement = new BiomeFilteredPlacement(
+                new OverlapAvoidingPlacement(ArenaClampPlacement.Instance),
+                mapView.Map, Biome.Plains);
+
+            var herdCenters = PickSeparatedBiomeCenters(
+                mapView.Map, Biome.Plains, HerdCount, MinHerdSeparation, _sim.Rng);
+            foreach (var herdPos in herdCenters)
+            {
+                int herdSize = 4 + _sim.Rng.Next(0, 2); // 4–5 sheep per herd
+                for (int i = 0; i < herdSize; i++)
                 {
-                    Radius = 0.6f,
-                    MaxSpeed = 0.35f,
-                    JumpHeight = 2.2f,
-                    TurnRate = 1.8f,
-                    Acceleration = 1.6f,
-                    GravityScale = 0f,
-                };
-                var sheepDrives = new Drives
-                {
-                    Curiosity = 0.3f,
-                    Fear = 0.15f,
-                    Sociability = 0.9f,
-                    Appetite = 0.6f,
-                    Aggression = 0.1f,
-                    PlayCuddle = 0.3f,
-                };
-                var sheepDiet = new HashSet<string> { "berries" };
-                var sheepPlacement = new BiomeFilteredPlacement(
-                    new OverlapAvoidingPlacement(ArenaClampPlacement.Instance),
-                    mapView.Map, Biome.Plains);
-                for (int i = 0; i < 12; i++)
-                {
-                    float ox = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
-                    float oz = (float)(_sim.Rng.NextDouble() * 2 - 1) * 2f;
+                    float ox = (float)(_sim.Rng.NextDouble() * 2 - 1) * HerdJitter;
+                    float oz = (float)(_sim.Rng.NextDouble() * 2 - 1) * HerdJitter;
                     var sheep = (Blob)_sim.Spawn(
                         new SNVector3(herdPos.X + ox, herdPos.Y, herdPos.Z + oz),
                         new BlobFactory(_sim.Behavior, _sim.Rng),
@@ -193,6 +212,10 @@ public partial class VivariumMain : Node3D
 
     public override void _Process(double delta)
     {
+        // Toggle debug labels on F3.
+        if (Input.IsActionJustPressed("debug_toggle"))
+            _showDebug = !_showDebug;
+
         UpdatePlayerInput();
         _sim.Tick(delta);
         TrackPlayerWithCamera();
@@ -210,6 +233,37 @@ public partial class VivariumMain : Node3D
                 _visuals[blob] = instance;
             }
             // CreatureVisual animates itself in _Process; no per-frame sync needed here.
+
+            // Debug label above this creature.
+            if (_showDebug)
+            {
+                if (!_debugLabels.TryGetValue(blob, out var label))
+                {
+                    label = new Label3D
+                    {
+                        Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+                        OutlineSize = 1,
+                        FontSize = 14,
+                        Modulate = Colors.White,
+                        PixelSize = 0.005f,
+                    };
+                    AddChild(label);
+                    _debugLabels[blob] = label;
+                }
+                label.Text = DebugLabelText(blob);
+                label.Position = new Vector3(
+                    blob.Position.X,
+                    blob.Position.Y + blob.Traits.Radius + 1.2f,
+                    blob.Position.Z);
+            }
+        }
+
+        // Remove all debug labels when toggled off.
+        if (!_showDebug && _debugLabels.Count > 0)
+        {
+            foreach (var (_, label) in _debugLabels)
+                label.QueueFree();
+            _debugLabels.Clear();
         }
 
         // Player visual — lazy-instantiate on first frame, sync every frame after.
@@ -342,6 +396,33 @@ public partial class VivariumMain : Node3D
         return new System.Numerics.Vector3(center.X, py, center.Z);
     }
 
+    /// <summary>
+    /// Pick up to <paramref name="count"/> biome-cell centers that are each at least
+    /// <paramref name="minSep"/> apart (horizontal), so herds spawn as distinct, separated groups
+    /// rather than one clump. Returns fewer if the map can't satisfy the spacing — graceful
+    /// degradation. Deterministic for a seeded RNG; capped attempts avoid spinning forever.
+    /// </summary>
+    private static List<System.Numerics.Vector3> PickSeparatedBiomeCenters(
+        MapData map, Biome biome, int count, float minSep, System.Random rng)
+    {
+        var picks = new List<System.Numerics.Vector3>();
+        float minSepSq = minSep * minSep;
+        int attempts = count * 20;
+        while (picks.Count < count && attempts-- > 0)
+        {
+            var candidate = PickBiomeCenter(map, biome, rng);
+            if (candidate is not System.Numerics.Vector3 c) break; // no cells of this biome at all
+            bool farEnough = true;
+            foreach (var p in picks)
+            {
+                float dx = p.X - c.X, dz = p.Z - c.Z;
+                if (dx * dx + dz * dz < minSepSq) { farEnough = false; break; }
+            }
+            if (farEnough) picks.Add(c);
+        }
+        return picks;
+    }
+
     private MapView? FindMapView()
     {
         foreach (var child in GetChildren())
@@ -350,6 +431,23 @@ public partial class VivariumMain : Node3D
                 return view;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Build the debug-label text for a creature: current action name, 10-segment
+    /// hunger bar (█ = filled, ░ = empty), and percentage.
+    /// </summary>
+    private static string DebugLabelText(Blob blob)
+    {
+        string action = blob.Brain?.CurrentName ?? string.Empty;
+        if (string.IsNullOrEmpty(action)) action = "—";
+
+        float hunger = blob.Needs.Hunger;
+        int filled = Math.Clamp((int)MathF.Round(hunger * 10f), 0, 10);
+        string bar = new string('█', filled) + new string('░', 10 - filled);
+        int pct = (int)MathF.Round(hunger * 100f);
+
+        return $"{action,-10}  {bar}  {pct}%";
     }
 
 }

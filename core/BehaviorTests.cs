@@ -26,6 +26,10 @@ public class BehaviorTests
         => Assert.Equal(0.25f, new ResponseCurve { Type = CurveType.Power, Exponent = 2f }.Evaluate(0.5f), 5);
 
     [Fact]
+    public void Power_OffsetAddsFloor()
+        => Assert.Equal(0.35f, new ResponseCurve { Type = CurveType.Power, Exponent = 2f, Offset = 0.1f }.Evaluate(0.5f), 5);
+
+    [Fact]
     public void Logistic_IsHalfAtMidpoint()
         => Assert.Equal(0.5f, new ResponseCurve { Type = CurveType.Logistic, Midpoint = 0.5f }.Evaluate(0.5f), 5);
 
@@ -109,6 +113,24 @@ public class BehaviorTests
     }
 
     [Fact]
+    public void ApproachingCreature_AtStandoffEquilibrium_StillDrifts_NotFrozen()
+    {
+        // Frozen-herd regression guard: a sheep settled exactly at the Standoff distance has a
+        // zero settle vector and no crowders, so without the idle-drift floor it would freeze.
+        // The drift must keep it gently milling. Radius 0.5 ⇒ standoff = Radius×PersonalSpaceRadii(4) = 2.
+        var self = new Creature(Vector3.Zero, new CreatureTraits { MaxSpeed = 1f, Radius = 0.5f },
+            new SteeringLocomotion(), new Drives { Sociability = 1f, Fear = 0f, Curiosity = 0f });
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var senses = new SenseContext
+        {
+            HasNeighbor = true, NeighborPosition = new Vector3(2, 0, 0), NeighborProximity = 0.5f,
+        };
+        brain.Tick(0.1, self, senses, new Random(1));
+        Assert.Equal("Approach", brain.CurrentName);
+        Assert.True(self.DesiredVelocity.LengthSquared() > 1e-4f, "settled approacher should drift, not freeze");
+    }
+
+    [Fact]
     public void IdleCreature_WithNothingAround_Wanders()
     {
         var brain = new UtilityBrain(new BehaviorConfig());
@@ -124,7 +146,7 @@ public class BehaviorTests
         var brain = new UtilityBrain(new BehaviorConfig());
         // Sociable but not curious/hungry, with a herd present but no single neighbor crowding it.
         var self = MakeCreature(new Drives { Sociability = 1f, Curiosity = 0f, Fear = 0f, Appetite = 0f });
-        var senses = new SenseContext { HasHerd = true, HerdCentroid = new Vector3(3, 0, 0) };
+        var senses = new SenseContext { HasFlock = true, FlockAnchor = new Vector3(3, 0, 0) };
         brain.Tick(0.1, self, senses, new Random(1));
         Assert.Equal("Flock", brain.CurrentName);
     }
@@ -133,10 +155,94 @@ public class BehaviorTests
     public void LoneCreature_DoesNotFlock()
     {
         var brain = new UtilityBrain(new BehaviorConfig());
-        // Same sociable temperament, but curious and alone → no herd to cohere to.
+        // Same sociable temperament, but curious and alone → no flock to cohere to.
         var self = MakeCreature(new Drives { Sociability = 1f, Curiosity = 1f });
-        brain.Tick(0.1, self, new SenseContext { HasHerd = false }, new Random(1));
+        brain.Tick(0.1, self, new SenseContext { HasFlock = false }, new Random(1));
         Assert.NotEqual("Flock", brain.CurrentName);
+    }
+
+    [Fact]
+    public void BoredCreature_RousesToWander_BreakingAFrozenEquilibrium()
+    {
+        // A sociable creature parked with its herd would otherwise sit in the Flock equilibrium
+        // forever. Once Boredom maxes out, Wander out-scores Flock and rouses it to roam — the
+        // anti-freeze loop. (Moving then relieves Boredom, so it resettles; here we assert the rouse.)
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var self = MakeCreature(new Drives { Sociability = 1f, Curiosity = 1f, Fear = 0f, Appetite = 0f });
+        var senses = new SenseContext { HasFlock = true, FlockAnchor = new Vector3(3, 0, 0), Boredom = 1f };
+        brain.Tick(0.1, self, senses, new Random(1));
+        Assert.Equal("Wander", brain.CurrentName);
+    }
+
+    [Fact]
+    public void SettledHerd_KeepsDrifting_InsteadOfFreezing()
+    {
+        // A sheep centered on its herd centroid with no crowders sees cohere==0 and separate==0:
+        // the old Flock blend was a dead zero-velocity freeze until Boredom slowly rescued it. The
+        // FlockWanderFloor drift keeps it milling. Still picks Flock (drift doesn't change selection).
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var self = MakeCreature(new Drives { Sociability = 1f, Curiosity = 1f, Fear = 0f, Appetite = 0f });
+        // Anchor on the creature (origin) ⇒ cohesion zero; no SeparationPush ⇒ separation zero.
+        var senses = new SenseContext { HasFlock = true, FlockAnchor = Vector3.Zero, Boredom = 0f };
+        brain.Tick(0.1, self, senses, new Random(1));
+        Assert.Equal("Flock", brain.CurrentName);
+        Assert.True(self.DesiredVelocity.LengthSquared() > 1e-4f, "settled herd should still drift, not freeze");
+    }
+
+    [Fact]
+    public void Flock_CapsSeparation_SoCohesionStillWins()
+    {
+        // The clamped flock separation (≤0.5×maxSpeed) can no longer overpower cohesion. With the
+        // centroid far on +X (cohesion full-speed +X) and a huge raw SeparationPush on −X, the old
+        // uncapped blend flung the sheep away (−X) and exploded the herd. Capped, cohesion wins: net
+        // velocity still points toward the herd (+X), and never exceeds max speed.
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var self = MakeCreature(new Drives { Sociability = 1f, Curiosity = 0f, Fear = 0f, Appetite = 0f });
+        var senses = new SenseContext
+        {
+            HasFlock = true,
+            FlockAnchor = new Vector3(10, 0, 0),        // far +X → cohesion at full speed toward +X
+            SeparationPush = new Vector3(-5f, 0, 0),    // enormous raw push toward −X (would dominate uncapped)
+        };
+        brain.Tick(0.1, self, senses, new Random(1));
+        Assert.Equal("Flock", brain.CurrentName);
+        Assert.True(self.DesiredVelocity.X > 0f, "capped separation must not overpower cohesion");
+        Assert.True(self.DesiredVelocity.Length() <= self.Traits.MaxSpeed + 1e-4f, "never exceeds max speed");
+    }
+
+    [Fact]
+    public void HungrySheep_WithHerdInRange_ForagesInsteadOfFlocking()
+    {
+        // Individual-movement guarantee: a genuine need (Forage at full hunger ≈ 0.9) out-scores the
+        // 0.7 Flock hold, so a hungry, sociable sheep with its flock in range still picks Forage and
+        // peels away to eat rather than staying glued to the group.
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var self = MakeCreature(new Drives { Sociability = 1f, Appetite = 1f, Curiosity = 0f, Fear = 0f });
+        var senses = new SenseContext { Hunger = 1f, HasFlock = true, FlockAnchor = new Vector3(3, 0, 0) };
+        brain.Tick(0.1, self, senses, new Random(1));
+        Assert.Equal("Forage", brain.CurrentName);
+    }
+
+    [Fact]
+    public void Forager_StaysLatchedUntilSated_ThenReleases()
+    {
+        // Re-decide every tick so we can drive the latch directly.
+        var brain = new UtilityBrain(new BehaviorConfig { DecisionInterval = 0f });
+        var self = MakeCreature(new Drives { Appetite = 1f, Sociability = 1f, Curiosity = 0f, Fear = 0f });
+        var rng = new Random(1);
+
+        // Commit to Forage on sensed food while hungry.
+        brain.Tick(0.1, self, new SenseContext { Hunger = 0.8f, HasFood = true, FoodPosition = new Vector3(1, 0, 0) }, rng);
+        Assert.Equal("Forage", brain.CurrentName);
+
+        // Food now gone and a herd is in range. Without the satiation latch Flock would beat the
+        // hunger-only Forage score and yank the creature off its meal. Still hungry → latch holds Forage.
+        brain.Tick(0.1, self, new SenseContext { Hunger = 0.7f, HasFood = false, HasFlock = true, FlockAnchor = new Vector3(3, 0, 0) }, rng);
+        Assert.Equal("Forage", brain.CurrentName);
+
+        // Eaten down past the satiation threshold → latch releases and Flock can reclaim it.
+        brain.Tick(0.1, self, new SenseContext { Hunger = 0.1f, HasFood = false, HasFlock = true, FlockAnchor = new Vector3(3, 0, 0) }, rng);
+        Assert.Equal("Flock", brain.CurrentName);
     }
 
     // ---------- stickiness (controlled two-action config) ----------

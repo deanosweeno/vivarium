@@ -41,6 +41,39 @@ public static class Steering
     public static Vector3 Cohesion(Vector3 self, Vector3 centroid, float maxSpeed, float slowRadius)
         => Arrive(self, centroid, maxSpeed, slowRadius);
 
+    /// <summary>
+    /// Steer directly away from a neighbor, scaled by how far inside personal space it is:
+    /// zero at/beyond <paramref name="personalSpace"/>, full away-speed when overlapping. Blended
+    /// with <see cref="Cohesion"/> by the Flock action so a herd settles into a spaced grazing
+    /// clump instead of every member colliding on the centroid.
+    /// </summary>
+    public static Vector3 Separation(Vector3 self, Vector3 neighbor, float maxSpeed, float personalSpace)
+    {
+        var d = Flatten(self - neighbor);
+        float dist = d.Length();
+        if (dist >= personalSpace || dist < 1e-4f) return Vector3.Zero;
+        return d / dist * maxSpeed * (1f - dist / personalSpace);
+    }
+
+    /// <summary>
+    /// Close to within <paramref name="standoff"/> of a target and hold there — a single smooth
+    /// signed-speed ramp along the line to the target, so there is no velocity discontinuity to
+    /// orbit. Beyond <c>standoff + band</c> the creature moves in at full speed; inside that band
+    /// it eases, reaching exactly zero at <paramref name="standoff"/>; closer than standoff the
+    /// speed goes negative (backs off), easing again. The equilibrium at <paramref name="standoff"/>
+    /// is stable and motionless — unlike Arrive-toward-the-body + separate-push, whose two terms
+    /// hand off abruptly at the personal-space edge and leave a creature jittering against it.
+    /// </summary>
+    public static Vector3 Standoff(Vector3 self, Vector3 target, float maxSpeed, float standoff, float band)
+    {
+        var d = Flatten(target - self);
+        float dist = d.Length();
+        if (dist < 1e-4f) return Vector3.Zero;
+        float t = band > 1e-4f ? (dist - standoff) / band : (dist > standoff ? 1f : -1f);
+        float speed = maxSpeed * Math.Clamp(t, -1f, 1f);   // <0 ⇒ back off
+        return d / dist * speed;
+    }
+
     /// <summary>Move along a precomputed (already-normalized) direction at full speed.</summary>
     public static Vector3 Along(Vector3 direction, float maxSpeed)
         => direction.LengthSquared() > 1e-8f ? Vector3.Normalize(Flatten(direction)) * maxSpeed : Vector3.Zero;

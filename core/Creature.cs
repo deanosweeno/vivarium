@@ -86,6 +86,21 @@ public class Creature
     public UtilityBrain? Brain { get; set; }
 
     /// <summary>
+    /// Raw seconds since this creature last belonged to any flock. Reset to 0 each tick it has
+    /// one, accumulated otherwise. Normalized to [0,1] as SenseContext.SeparationTime for the
+    /// brain's SeekFlock consideration.
+    /// </summary>
+    public float SeparationTimer { get; internal set; }
+
+    /// <summary>
+    /// The <see cref="Vivarium.Core.Flock"/> this creature currently belongs to, or null when
+    /// unflocked. Managed by the Simulator's flock system (form / join / merge / leave). A member
+    /// holds a loose circle around its flock's moving anchor via the Flock steering, peeling off
+    /// only when an individual need outscores it and returning once satisfied.
+    /// </summary>
+    public Flock? Flock { get; internal set; }
+
+    /// <summary>
     /// Create a creature at the given position with specified traits and
     /// movement strategy. If <paramref name="traits"/> is null, defaults
     /// are used. If <paramref name="drives"/> is null, a neutral temperament is used.

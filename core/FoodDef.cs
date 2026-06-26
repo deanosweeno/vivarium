@@ -27,7 +27,7 @@ public sealed class FoodDef
     public float GrazeRate { get; init; } = 0.5f;
 
     /// <summary>Seconds an eaten item stays depleted before it regrows (Amount back to 1).</summary>
-    public float RespawnSeconds { get; init; } = 8f;
+    public float RespawnSeconds { get; init; } = 300f;
 
     /// <summary>Display color as a "#rrggbb" hex string (read by the Godot FoodVisual).</summary>
     public string ColorHex { get; init; } = "#C24B3A";

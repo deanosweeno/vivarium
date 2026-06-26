@@ -86,8 +86,15 @@ public sealed class UtilityBrain
         // Decay the current commitment over the elapsed time.
         _commitment = Math.Max(0f, _commitment - _config.CommitmentDecayPerSec * elapsed);
 
+        // Satiation latch: a creature mid-graze stays on Forage until it has eaten down to the
+        // satiation threshold, so Flock/Approach can't yank it off the food after a single bite
+        // (the oscillation we're fixing). Once Hunger drops to threshold it releases normally.
+        float hold = Current.Steering == SteeringKind.Forage && senses.Hunger > _config.SatiationThreshold
+            ? 1f
+            : 0f;
+
         bool isEmergency = best.EmergencyCapable && bestScore >= best.EmergencyThreshold;
-        bool beatsStickyCurrent = bestScore > currentScore + _config.SwitchMargin + _commitment;
+        bool beatsStickyCurrent = bestScore > currentScore + _config.SwitchMargin + _commitment + hold;
 
         if (!ReferenceEquals(best, Current) && (isEmergency || beatsStickyCurrent))
             Commit(best);
@@ -108,9 +115,27 @@ public sealed class UtilityBrain
                 return Steering.Stop();
 
             case SteeringKind.Approach:
-                return senses.HasNeighbor
-                    ? Steering.Arrive(self.Position, senses.NeighborPosition, maxSpeed, self.Traits.Radius * 3f)
-                    : Wander(delta, maxSpeed, rng);
+            {
+                if (!senses.HasNeighbor)
+                    return Wander(delta, maxSpeed, rng);
+                // Close to a comfortable side-by-side distance and hold there. A single smooth
+                // Standoff ramp (eases to exactly zero at the personal-space edge) avoids the
+                // jitter that Arrive-toward-the-body + a separate push produced: their two terms
+                // handed off abruptly at the edge, leaving sheep orbiting it. Standoff target is
+                // the personal-space radius; the band softens the approach over ~2 body radii.
+                float standoff = self.Traits.Radius * _config.PersonalSpaceRadii;
+                var settle = Steering.Standoff(self.Position, senses.NeighborPosition, maxSpeed,
+                    standoff, self.Traits.Radius * 2f);
+                // Idle drift floor: a settled cluster eases to a motionless Standoff equilibrium, so
+                // mix in a small wander drift to keep it gently milling instead of freezing in place
+                // (same anti-freeze trick the Flock case uses; shared Wander state stays coherent).
+                var drift = Wander(delta, maxSpeed, rng) * _config.FlockWanderFloor;
+                // Add the multi-neighbor push so a crowd (more than the nearest body) still spreads.
+                var blended = settle + senses.SeparationPush * maxSpeed + drift;
+                return blended.LengthSquared() > maxSpeed * maxSpeed
+                    ? Vector3.Normalize(blended) * maxSpeed
+                    : blended;
+            }
 
             case SteeringKind.Flee:
                 return senses.HasNeighbor
@@ -125,11 +150,42 @@ public sealed class UtilityBrain
                     : Wander(delta, maxSpeed, rng);
 
             case SteeringKind.Flock:
-                // Cohere toward the herd centroid; ease to a stop a few body-radii out so the
-                // group stays a loose clump. No herd sensed → wander to look for one.
-                return senses.HasHerd
-                    ? Steering.Cohesion(self.Position, senses.HerdCentroid, maxSpeed, self.Traits.Radius * 4f)
-                    : Wander(delta, maxSpeed, rng);
+            {
+                // Not in a flock → wander to look for one (the flock system will group nearby kin).
+                if (!senses.HasFlock)
+                    return Wander(delta, maxSpeed, rng);
+
+                // Smooth cohesion: Standoff toward the anchor with no fixed offset, ramping
+                // speed linearly from 0 (at anchor) to full maxSpeed (at FlockLeaveRadius).
+                // Replaces Arrive-based Cohesion which snapped to full speed at the FlockRadius
+                // boundary — a member outside the circle now accelerates smoothly back.
+                var cohere = Steering.Standoff(self.Position, senses.FlockAnchor,
+                    maxSpeed, standoff: 0f, band: _config.FlockLeaveRadius);
+                // Separation pushes out of crowders' personal space. Clamp it to half max speed so a
+                // dense pack can no longer out-shove cohesion and explode the herd (the old bug).
+                var separate = senses.SeparationPush * maxSpeed;
+                float sepLen = separate.Length();
+                float sepCap = maxSpeed * 0.5f;
+                if (sepLen > sepCap)
+                    separate *= sepCap / sepLen;
+                // Idle drift floor: keeps a settled herd milling instead of freezing where
+                // cohere and separate both cancel to zero. Reuses the shared Wander state so
+                // the drift is coherent with a later Wander stroll.
+                var drift = Wander(delta, maxSpeed, rng) * _config.FlockWanderFloor;
+                var blended = cohere + separate + drift;
+                return blended.LengthSquared() > maxSpeed * maxSpeed
+                    ? Vector3.Normalize(blended) * maxSpeed
+                    : blended;
+            }
+
+            case SteeringKind.SeekFlock:
+            {
+                if (senses.HasNearbyFlock)
+                    return Steering.Standoff(self.Position, senses.NearestFlockAnchor,
+                        maxSpeed, standoff: 0f, band: _config.FlockJoinRadius);
+                // No kin flock in range — wander to search for one.
+                return Wander(delta, maxSpeed, rng);
+            }
 
             case SteeringKind.Wander:
             default:
@@ -137,7 +193,7 @@ public sealed class UtilityBrain
         }
     }
 
-    /// <summary>Relaxed roaming: re-roll a random XZ direction periodically, move at ~0.6× speed.</summary>
+    /// <summary>Relaxed roaming: re-roll a random XZ direction periodically, move at full speed.</summary>
     private Vector3 Wander(double delta, float maxSpeed, Random rng)
     {
         _wanderTimer -= delta;
@@ -145,8 +201,9 @@ public sealed class UtilityBrain
         {
             double angle = rng.NextDouble() * 2.0 * Math.PI;
             _wanderDir = new Vector3((float)Math.Cos(angle), 0f, (float)Math.Sin(angle));
-            _wanderTimer = 1.0 + rng.NextDouble() * 3.0;
+            _wanderTimer = _config.WanderDwellMin
+                + rng.NextDouble() * (_config.WanderDwellMax - _config.WanderDwellMin);
         }
-        return _wanderDir * (maxSpeed * 0.6f);
+        return _wanderDir * maxSpeed;
     }
 }

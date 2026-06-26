@@ -10,13 +10,23 @@ namespace Vivarium.Core;
 /// which extends Creature). Physics, gravity, ground clamping, and collision
 /// are applied uniformly to all entities through the creature pipeline.
 /// </summary>
-public sealed class Simulator
+public sealed class Simulator : IFlockEnv
 {
     /// <summary>
     /// All entities in the simulation. Includes both generic Creatures and
     /// Blob instances (which extend Creature).
     /// </summary>
     public List<Creature> Entities { get; } = new();
+
+    /// <summary>
+    /// Active flocks (explicit group entities). Formed, grown, merged, and pruned each
+    /// <see cref="BehaviorConfig.DecisionInterval"/> by <see cref="UpdateFlocks"/>; each flock's
+    /// anchor is then advanced so its member circle drifts as one. Read by the visual layer if it
+    /// wants to draw group state.
+    /// </summary>
+    public List<Flock> Flocks { get; } = new();
+
+    private double _flockTimer;
 
     /// <summary>
     /// Global gravity constant applied to all creatures each tick.
@@ -219,6 +229,12 @@ public sealed class Simulator
             // 1b. Utility-AI decision → sets DesiredVelocity (no-op if the creature has no brain)
             if (entity.Brain is not null)
             {
+                // Track separation time for SeekFlock: reset when in a flock, accumulate otherwise.
+                if (entity.Flock != null)
+                    entity.SeparationTimer = 0f;
+                else
+                    entity.SeparationTimer += (float)delta;
+
                 var senses = BuildSenses(entity);
                 entity.Brain.Tick(delta, entity, senses, Rng);
                 entity.FocusPosition = ResolveFocus(entity.Brain.Current?.Steering, senses);
@@ -252,6 +268,11 @@ public sealed class Simulator
                     entity.Velocity.X, 0f, entity.Velocity.Z);
             }
         }
+
+        // --- Flocks: re-group membership periodically, then drift each flock's anchor as one ---
+        UpdateFlocks(delta);
+        foreach (var flock in Flocks)
+            flock.AdvanceAnchor(delta, Arena, Rng, this, Behavior);
 
         // --- Grazing: foraging creatures eat the food they've reached ---
         ResolveGrazing(delta);
@@ -322,12 +343,13 @@ public sealed class Simulator
     {
         float radius = Behavior.SenseRadius;
 
-        // Nearest neighbor (horizontal distance), plus the centroid of all in-range neighbors
-        // for herd cohesion. One pass over the entity list.
+        // Nearest neighbor (horizontal distance). One pass over the entity list.
         Creature? nearest = null;
         float nearestDist = float.MaxValue;
-        var herdSum = Vector3.Zero;
-        int herdCount = 0;
+        // Personal space and the running separation push, summed over every crowding body so a
+        // creature is shoved out of a clump, not just away from its single nearest neighbor.
+        float personalSpace = self.Traits.Radius * Behavior.PersonalSpaceRadii;
+        var separationPush = Vector3.Zero;
         foreach (var other in Entities)
         {
             if (ReferenceEquals(other, self)) continue;
@@ -338,24 +360,49 @@ public sealed class Simulator
                 nearestDist = dist;
                 nearest = other;
             }
-            if (dist <= radius)
-            {
-                herdSum += other.Position;
-                herdCount++;
-            }
+            // Avoidance reacts to ANY body in personal space, summed (a weighted away-vector, deeper
+            // intrusion = stronger push). Skip exact overlap — ResolveEntityCollisions handles that.
+            if (dist < personalSpace && dist > 1e-4f)
+                separationPush += new Vector3(-d.X, 0f, -d.Z) / dist * (1f - dist / personalSpace);
         }
 
         bool hasNeighbor = nearest is not null && nearestDist <= radius;
         float proximity = hasNeighbor ? 1f - nearestDist / radius : 0f;
 
-        // A herd is two or more in-range neighbors; centroid is their average position.
-        bool hasHerd = herdCount >= 2;
-        Vector3 herdCentroid = hasHerd ? herdSum / herdCount : self.Position;
+        // Flock cohesion targets the creature's flock anchor (an explicit group entity managed by
+        // UpdateFlocks), not a live kin centroid — the herd moves as one circle around the anchor.
+        var flock = self.Flock;
+        bool hasFlock = flock is { Members.Count: > 0 };
+        Vector3 flockAnchor = hasFlock ? flock!.Anchor : self.Position;
+        float flockRadius = hasFlock ? flock!.Radius : 0f;
 
         // Nearest available food this creature can eat (horizontal distance).
         var (foodItem, foodDist) = NearestFood(self.Position, self.Diet);
         bool hasFood = foodItem is not null && foodDist <= radius;
         float foodProximity = hasFood ? 1f - foodDist / radius : 0f;
+
+        // Normalized separation time for SeekFlock consideration.
+        float separationTime = MathF.Min(1f, self.SeparationTimer / Behavior.SeekFlockDelay);
+
+        // Nearest kin flock (for SeekFlock steering). Reuses the kin gate from UpdateFlocks Join.
+        bool hasNearbyFlock = false;
+        Vector3 nearestFlockAnchor = self.Position;
+        if (!hasFlock)
+        {
+            float bestFlockDist = float.MaxValue;
+            foreach (var otherFlock in Flocks)
+            {
+                if (otherFlock.Members.Count == 0) continue;
+                float d = HorizDist(self.Position, otherFlock.Anchor);
+                if (d < bestFlockDist
+                    && Genetics.Similarity(self, otherFlock.Members[0]) >= Behavior.HerdKinThreshold)
+                {
+                    bestFlockDist = d;
+                    nearestFlockAnchor = otherFlock.Anchor;
+                    hasNearbyFlock = true;
+                }
+            }
+        }
 
         return new SenseContext
         {
@@ -363,11 +410,16 @@ public sealed class Simulator
             HasNeighbor = hasNeighbor,
             NeighborPosition = nearest?.Position ?? self.Position,
             NeighborProximity = proximity,
-            HasHerd = hasHerd,
-            HerdCentroid = herdCentroid,
+            SeparationPush = separationPush,
+            HasFlock = hasFlock,
+            FlockAnchor = flockAnchor,
+            FlockRadius = flockRadius,
             HasFood = hasFood,
             FoodPosition = foodItem?.Position ?? self.Position,
             FoodProximity = foodProximity,
+            SeparationTime = separationTime,
+            HasNearbyFlock = hasNearbyFlock,
+            NearestFlockAnchor = nearestFlockAnchor,
             Hunger = self.Needs.Hunger,
             Fatigue = self.Needs.Fatigue,
             Boredom = self.Needs.Boredom,
@@ -388,8 +440,10 @@ public sealed class Simulator
             case SteeringKind.Approach when senses.HasNeighbor:
             case SteeringKind.Flee when senses.HasNeighbor:
                 return senses.NeighborPosition;
-            case SteeringKind.Flock when senses.HasHerd:
-                return senses.HerdCentroid;
+            case SteeringKind.Flock when senses.HasFlock:
+                return senses.FlockAnchor;
+            case SteeringKind.SeekFlock when senses.HasNearbyFlock:
+                return senses.NearestFlockAnchor;
             default:
                 return null;
         }
@@ -418,6 +472,144 @@ public sealed class Simulator
             }
         }
         return (nearest, nearestDist);
+    }
+
+    // -------------------------------------------------
+    // Flock system (membership: form / join / leave / merge)
+    // -------------------------------------------------
+
+    /// <summary>
+    /// Periodically (every <see cref="BehaviorConfig.DecisionInterval"/>) reconcile flock membership
+    /// over the entity list — deterministic, positions only:
+    ///   • <b>Leave</b>: drop members that have strayed past <see cref="BehaviorConfig.FlockLeaveRadius"/>.
+    ///   • <b>Join</b>: an unflocked kin within <see cref="BehaviorConfig.FlockJoinRadius"/> of an
+    ///     existing flock's anchor joins it.
+    ///   • <b>Form</b>: clusters of still-unflocked kin seed a new flock at their centroid.
+    ///   • <b>Merge</b>: flocks whose anchors close within <see cref="BehaviorConfig.FlockMergeRadius"/>
+    ///     fold the smaller into the larger.
+    /// Only brained creatures flock; the kin gate (<see cref="Genetics.Similarity"/> ≥
+    /// <see cref="BehaviorConfig.HerdKinThreshold"/>) keeps non-kin (Sprouts, the player) out.
+    /// TODO: hysteresis timer on Leave + split-on-oversize flock.
+    /// </summary>
+    private void UpdateFlocks(double delta)
+    {
+        _flockTimer -= delta;
+        if (_flockTimer > 0) return;
+        _flockTimer = Behavior.DecisionInterval;
+
+        float joinR = Behavior.FlockJoinRadius;
+        float leaveR = Behavior.FlockLeaveRadius;
+        float mergeR = Behavior.FlockMergeRadius;
+
+        // 1. Leave — drop strayed members.
+        foreach (var flock in Flocks)
+        {
+            for (int i = flock.Members.Count - 1; i >= 0; i--)
+            {
+                var m = flock.Members[i];
+                if (HorizDist(m.Position, flock.Anchor) > leaveR)
+                {
+                    m.Flock = null;
+                    flock.Members.RemoveAt(i);
+                }
+            }
+        }
+        Flocks.RemoveAll(f => f.Members.Count == 0);
+
+        // 2. Join — an unflocked kin near an existing flock's anchor joins it.
+        foreach (var e in Entities)
+        {
+            if (e.Brain is null || e.Flock is not null) continue;
+            Flock? best = null;
+            float bestD = joinR;
+            foreach (var flock in Flocks)
+            {
+                float d = HorizDist(e.Position, flock.Anchor);
+                if (d <= bestD && Genetics.Similarity(e, flock.Members[0]) >= Behavior.HerdKinThreshold)
+                {
+                    bestD = d;
+                    best = flock;
+                }
+            }
+            if (best is not null)
+            {
+                best.Members.Add(e);
+                e.Flock = best;
+            }
+        }
+
+        // 3. Form — cluster still-unflocked kin into new flocks.
+        for (int i = 0; i < Entities.Count; i++)
+        {
+            var a = Entities[i];
+            if (a.Brain is null || a.Flock is not null) continue;
+            List<Creature>? group = null;
+            for (int j = 0; j < Entities.Count; j++)
+            {
+                if (i == j) continue;
+                var b = Entities[j];
+                if (b.Brain is null || b.Flock is not null) continue;
+                if (HorizDist(a.Position, b.Position) <= joinR
+                    && Genetics.Similarity(a, b) >= Behavior.HerdKinThreshold)
+                {
+                    group ??= new List<Creature> { a };
+                    group.Add(b);
+                }
+            }
+            if (group is not null)
+            {
+                var centroid = Vector3.Zero;
+                foreach (var m in group) centroid += m.Position;
+                centroid /= group.Count;
+                var flock = new Flock(new Vector3(centroid.X, GroundFloor(centroid), centroid.Z));
+                foreach (var m in group)
+                {
+                    flock.Members.Add(m);
+                    m.Flock = flock;
+                }
+                Flocks.Add(flock);
+            }
+        }
+
+        // 4. Merge — fold a smaller flock into a nearby larger kin flock.
+        for (int i = 0; i < Flocks.Count; i++)
+        {
+            if (Flocks[i].Members.Count == 0) continue;
+            for (int j = i + 1; j < Flocks.Count; j++)
+            {
+                var fa = Flocks[i];
+                var fb = Flocks[j];
+                if (fa.Members.Count == 0) break;
+                if (fb.Members.Count == 0) continue;
+                if (HorizDist(fa.Anchor, fb.Anchor) > mergeR) continue;
+                if (Genetics.Similarity(fa.Members[0], fb.Members[0]) < Behavior.HerdKinThreshold) continue;
+
+                var (keep, drop) = fa.Members.Count >= fb.Members.Count ? (fa, fb) : (fb, fa);
+                foreach (var m in drop.Members)
+                {
+                    m.Flock = keep;
+                    keep.Members.Add(m);
+                }
+                drop.Members.Clear();
+            }
+        }
+        Flocks.RemoveAll(f => f.Members.Count == 0);
+    }
+
+    private static float HorizDist(Vector3 a, Vector3 b)
+    {
+        float dx = a.X - b.X, dz = a.Z - b.Z;
+        return MathF.Sqrt(dx * dx + dz * dz);
+    }
+
+    // --- IFlockEnv: read-only world access for Flock.AdvanceAnchor ---
+
+    float IFlockEnv.GroundFloor(Vector3 pos) => GroundFloor(pos);
+
+    (Vector3 Position, bool Has) IFlockEnv.NearestFood(Vector3 from, HashSet<string>? diet)
+    {
+        var (item, _) = NearestFood(from, diet);
+        return item is null ? (from, false) : (item.Position, true);
     }
 
     /// <summary>
@@ -490,7 +682,21 @@ public sealed class Simulator
                 var a = Entities[i];
                 var b = Entities[j];
                 float minDist = a.Traits.Radius + b.Traits.Radius;
+
+                // Horizontal overlap check before push, so we can also strip the inward velocity
+                // that drove them together — otherwise momentum re-rams them next tick (jitter).
+                var sep = new Vector3(a.Position.X - b.Position.X, 0f, a.Position.Z - b.Position.Z);
+                float horiz = sep.Length();
+                bool overlapping = horiz < minDist && horiz > 1e-6f;
+
                 (a.Position, b.Position) = PushApart(a.Position, b.Position, minDist);
+
+                if (overlapping)
+                {
+                    var axis = sep / horiz;                 // unit vector from b toward a, XZ plane
+                    KillInwardVelocity(a, axis);            // a moving toward b (-axis) → cancel it
+                    KillInwardVelocity(b, -axis);
+                }
             }
         }
     }
@@ -499,6 +705,24 @@ public sealed class Simulator
     /// Push two positions apart if they overlap, each by half the overlap.
     /// If the distance is near-zero, nudges apart on a fixed axis.
     /// </summary>
+    /// <summary>
+    /// Remove the component of a creature's horizontal velocity that points along
+    /// <paramref name="outwardAxis"/> negated — i.e. any speed driving it <em>into</em> the body it
+    /// just collided with. Leaves Y untouched (gravity) and any sideways/separating motion intact,
+    /// so a settled pair stops ramming instead of bouncing. Deterministic: velocities only, no RNG.
+    /// </summary>
+    private static void KillInwardVelocity(Creature c, Vector3 outwardAxis)
+    {
+        var v = c.Velocity;
+        var horiz = new Vector3(v.X, 0f, v.Z);
+        float inward = Vector3.Dot(horiz, outwardAxis);   // <0 means moving toward the other body
+        if (inward < 0f)
+        {
+            horiz -= outwardAxis * inward;                // cancel only the inward component
+            c.Velocity = new Vector3(horiz.X, v.Y, horiz.Z);
+        }
+    }
+
     private static (Vector3 A, Vector3 B) PushApart(Vector3 a, Vector3 b, float minDist)
     {
         var delta = a - b;

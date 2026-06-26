@@ -25,14 +25,30 @@ public readonly struct SenseContext
     /// <summary>1 when a neighbor is touching, 0 at/beyond sense radius (or none). For Approach/Flee.</summary>
     public float NeighborProximity { get; init; }
 
-    /// <summary>Whether two or more other creatures are within sense radius (a herd to cohere to).</summary>
-    public bool HasHerd { get; init; }
+    /// <summary>
+    /// Accumulated avoidance direction: the sum, over every body inside personal space, of a unit
+    /// away-vector weighted by how deep that body is inside personal space (0 at the edge, →1 when
+    /// overlapping). XZ only, not yet scaled to speed — the brain multiplies by maxSpeed. Summing
+    /// over <em>all</em> crowders (not just the nearest) is what stops a creature from nosing into a
+    /// non-nearest neighbor. Reacts to any body, kin or not. Zero when nothing is in personal space.
+    /// </summary>
+    public Vector3 SeparationPush { get; init; }
+
+    /// <summary>Whether this creature belongs to a non-empty <see cref="Flock"/> to cohere toward.</summary>
+    public bool HasFlock { get; init; }
 
     /// <summary>
-    /// Average position of all neighbors within sense radius (valid only when <see cref="HasHerd"/>).
-    /// The point a flocking creature steers toward — see <see cref="Steering.Cohesion"/>.
+    /// The flock's moving anchor — the center of the wandering circle (valid only when
+    /// <see cref="HasFlock"/>). A member eases toward this via <see cref="Steering.Cohesion"/>,
+    /// settling anywhere inside <see cref="FlockRadius"/> so the herd mills as one moving disc.
     /// </summary>
-    public Vector3 HerdCentroid { get; init; }
+    public Vector3 FlockAnchor { get; init; }
+
+    /// <summary>
+    /// Radius of the flock's circle (valid only when <see cref="HasFlock"/>). No longer consumed
+    /// by steering (smooth Standoff replaced Arrive-based Cohesion); retained as world state.
+    /// </summary>
+    public float FlockRadius { get; init; }
 
     /// <summary>Whether any available food item is within sense radius. For Forage.</summary>
     public bool HasFood { get; init; }
@@ -42,6 +58,20 @@ public readonly struct SenseContext
 
     /// <summary>1 when food is touching, 0 at/beyond sense radius (or none). For Forage.</summary>
     public float FoodProximity { get; init; }
+
+    /// <summary>
+    /// Normalized [0,1] separation time: 0 = still in a flock or just left, 1 = been alone
+    /// for ≥SeekFlockDelay seconds. For the SeekFlock consideration.
+    /// </summary>
+    public float SeparationTime { get; init; }
+
+    /// <summary>Whether any kin flock exists within the world. When false, SeekFlock
+    /// steering falls back to Wander (the creature searches randomly).</summary>
+    public bool HasNearbyFlock { get; init; }
+
+    /// <summary>Nearest kin flock's anchor (valid only when <see cref="HasNearbyFlock"/>).
+    /// The SeekFlock steering smoothly approaches this point.</summary>
+    public Vector3 NearestFlockAnchor { get; init; }
 
     // Needs are copied in so the brain reads everything from one struct.
     public float Hunger { get; init; }

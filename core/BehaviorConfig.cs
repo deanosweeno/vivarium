@@ -25,10 +25,89 @@ public sealed class BehaviorConfig
     /// <summary>Seeded jitter added to each score before argmax. 0 = deterministic argmax.</summary>
     public float DecisionNoise { get; init; } = 0f;
 
+    /// <summary>
+    /// Hunger level a forager eats down to before it will abandon food. While the current action
+    /// is Forage and Hunger is above this, the brain latches Forage (an "eat until full" hold) so a
+    /// grazing creature isn't yo-yoed back to the herd after a single bite — see <see cref="UtilityBrain"/>.
+    /// </summary>
+    public float SatiationThreshold { get; init; } = 0.15f;
+
     // --- perception ---
 
     /// <summary>How far a creature senses neighbors / samples terrain, in arena units.</summary>
     public float SenseRadius { get; init; } = 5f;
+
+    /// <summary>
+    /// Minimum <see cref="Genetics.Similarity"/> for another creature to count as herd-mate, so a
+    /// creature flocks only with genetically similar kin (and near-kin hybrids), not any neighbor.
+    /// </summary>
+    public float HerdKinThreshold { get; init; } = 0.85f;
+
+    /// <summary>
+    /// Personal-space radius, in multiples of the creature's own <see cref="CreatureTraits.Radius"/>.
+    /// Any body closer than this contributes a separation push (summed over all such bodies, so a
+    /// creature is shoved out of a crowd, not just away from its single nearest neighbor). Drives the
+    /// avoidance term shared by the Approach and Flock steering, keeping noses out of faces.
+    /// </summary>
+    public float PersonalSpaceRadii { get; init; } = 4f;
+
+    /// <summary>
+    /// Shared social idle-drift floor: fraction of max speed of wander drift mixed into the
+    /// Flock and Approach steering so a settled cluster keeps milling instead of freezing at a
+    /// zero-velocity equilibrium (Flock's cohesion/separation cancel; Approach's Standoff eases
+    /// to a motionless hold). 0 = old freeze-then-Boredom behavior.
+    /// </summary>
+    public float FlockWanderFloor { get; init; } = 0.35f;
+
+    /// <summary>Speed (arena units/sec) the flock anchor drifts — ~80% of a typical sheep's max speed.
+    /// Faster than the old 0.25 so the herd reads as one migrating mass.</summary>
+    public float FlockPace { get; init; } = 0.4f;
+
+    // --- wander dwell (how long before a creature re-rolls its wander direction) ---
+
+    /// <summary>Minimum seconds a wandering creature holds a direction before re-rolling.</summary>
+    public float WanderDwellMin { get; init; } = 3f;
+
+    /// <summary>Maximum seconds a wandering creature holds a direction before re-rolling.</summary>
+    public float WanderDwellMax { get; init; } = 7f;
+
+    // --- flock (group entity) tunables ---
+
+    /// <summary>Circle radius at one member; grows with √(member count) by FlockRadiusPerMember.</summary>
+    public float FlockBaseRadius { get; init; } = 2.5f;
+
+    /// <summary>Per-√member growth of the flock circle radius — keeps a larger herd uncramped.</summary>
+    public float FlockRadiusPerMember { get; init; } = 0.6f;
+
+
+
+    /// <summary>Seconds between flock-brain (Wander vs Graze) re-decisions.</summary>
+    public float FlockDecisionInterval { get; init; } = 2f;
+
+    /// <summary>Minimum seconds the flock anchor holds a wander direction (long dwell for steady herd drift).</summary>
+    public float FlockWanderDwellMin { get; init; } = 15f;
+
+    /// <summary>Maximum seconds the flock anchor holds a wander direction.</summary>
+    public float FlockWanderDwellMax { get; init; } = 30f;
+
+    /// <summary>Average member Hunger above which the flock prefers Graze (if food is near the anchor).</summary>
+    public float FlockGrazeHungerThreshold { get; init; } = 0.4f;
+
+    /// <summary>Food must be within SenseRadius × this of the anchor for the flock to commit to Graze.</summary>
+    public float FlockGrazeFoodRange { get; init; } = 2f;
+
+    /// <summary>An unflocked kin within this distance of a flock's anchor (or seed kin) joins/forms it.</summary>
+    public float FlockJoinRadius { get; init; } = 8f;
+
+    /// <summary>A member straying beyond this distance from its anchor is dropped from the flock.</summary>
+    public float FlockLeaveRadius { get; init; } = 12f;
+
+    /// <summary>Two flocks whose anchors come within this distance merge (smaller folds into larger).</summary>
+    public float FlockMergeRadius { get; init; } = 4f;
+
+    /// <summary>Seconds a creature must be separated from any flock before
+    /// SeekFlock becomes available. Normalized 0→1 in SenseContext.</summary>
+    public float SeekFlockDelay { get; init; } = 60f;
 
     // --- need dynamics (per second) ---
 
@@ -39,7 +118,7 @@ public sealed class BehaviorConfig
     public float FatigueRecoverPerSec { get; init; } = 0.25f;
 
     /// <summary>Hunger gained per second (seated; satisfied by foraging once food exists).</summary>
-    public float HungerGainPerSec { get; init; } = 0.02f;
+    public float HungerGainPerSec { get; init; } = 0.003f;
 
     /// <summary>Boredom gained per second while idle/resting (seated; relieved by play later).</summary>
     public float BoredomGainPerSec { get; init; } = 0.03f;
@@ -58,16 +137,26 @@ public sealed class BehaviorConfig
     /// </summary>
     public static IReadOnlyList<BehaviorAction> DefaultActions() =>
     [
-        // Wander — a low constant floor scaled by curiosity, so there's always something to do.
+        // Wander — driven by Boredom (cubed, like Rest's fatigue), so it stays quiet while a
+        // creature is engaged but rises sharply once it's been idle too long, eventually
+        // out-scoring a parked Approach/Flock equilibrium and rousing it to roam. Moving relieves
+        // Boredom (BoredomRelievePerSec), which drops the score again, so the creature takes a
+        // short "stretch the legs" stroll and resettles — this is what keeps creatures from
+        // freezing forever in a stable zero-velocity steering equilibrium. A curiosity floor
+        // tints the cadence by personality without gating it (every creature roams when bored).
         new BehaviorAction
         {
             Name = "Wander",
             Steering = SteeringKind.Wander,
-            BaseWeight = 0.25f,
+            BaseWeight = 0.9f,
             Considerations =
             [
+                // Offset is the always-on roaming floor (keeps Wander the default fallback when
+                // nothing else fires); boredom³ lifts it until it can rouse a parked equilibrium.
+                new Consideration { Input = InputKind.Boredom,
+                    Curve = new ResponseCurve { Type = CurveType.Power, Exponent = 3f, Offset = 0.13f } },
                 new Consideration { Input = InputKind.Constant, Drive = DriveKind.Curiosity,
-                    Curve = new ResponseCurve { Type = CurveType.Linear, Slope = 0.6f, Offset = 0.4f } },
+                    Curve = new ResponseCurve { Type = CurveType.Linear, Slope = 0.4f, Offset = 0.6f } },
             ],
         },
 
@@ -131,17 +220,37 @@ public sealed class BehaviorConfig
             ],
         },
 
-        // Flock — herd cohesion. Fires when a herd (≥2 neighbors) is in range, scaled by
-        // Sociability. BaseWeight sits between Wander (0.25) and Forage (0.9) so a sociable
-        // creature prefers staying with the group over idle roaming, but hunger/fear still win.
+        // Flock — hold formation in the creature's flock, scaled by Sociability. BaseWeight is now
+        // the GROUP-DEFAULT (0.7): with a flock present this beats idle Wander, so a sociable
+        // creature stays in the herd by default and does NOT wander off without reason. Genuine
+        // needs still peel it off because their considerations spike past Flock — Forage (Hunger²×
+        // Appetite), Rest (Fatigue³), Flee (emergency), Approach (a close neighbour/player). Once
+        // the need subsides, Flock wins again and the member eases back to the (moved) anchor —
+        // "return when satisfied" falls out of the utility scoring, no dedicated return action.
         new BehaviorAction
         {
             Name = "Flock",
             Steering = SteeringKind.Flock,
-            BaseWeight = 0.6f,
+            BaseWeight = 0.7f,
             Considerations =
             [
                 new Consideration { Input = InputKind.HerdPresence, Drive = DriveKind.Sociability },
+            ],
+        },
+
+        // SeekFlock — after SeparationTime passes the delay threshold, a separated
+        // creature looks for a kin flock to rejoin. Sociability weights urgency.
+        // The logistic curve creates a sharp "click" near 0.5 normalized (≈30 real seconds
+        // into the 60s delay) so the action doesn't creep in gradually.
+        new BehaviorAction
+        {
+            Name = "SeekFlock",
+            Steering = SteeringKind.SeekFlock,
+            BaseWeight = 0.8f,
+            Considerations =
+            [
+                new Consideration { Input = InputKind.SeparationTime, Drive = DriveKind.Sociability,
+                    Curve = new ResponseCurve { Type = CurveType.Logistic, Midpoint = 0.5f, Steepness = 10f } },
             ],
         },
     ];

@@ -7,7 +7,7 @@ public enum CurveType
     Linear,
     /// <summary>y = clamp01(Slope·(1−x) + Offset). "Less input = more urge" (low energy → rest).</summary>
     Inverse,
-    /// <summary>y = clamp01(x)^Exponent. Slow ramp then steep (or vice-versa). Ignorable-until-it-bites.</summary>
+    /// <summary>y = clamp01(Offset + x^Exponent). Slow ramp then steep; Offset adds an always-on floor.</summary>
     Power,
     /// <summary>Logistic S-curve around Midpoint with steepness Steepness. A soft threshold.</summary>
     Logistic,
@@ -25,7 +25,7 @@ public sealed class ResponseCurve
     /// <summary>Linear/Inverse slope.</summary>
     public float Slope { get; init; } = 1f;
 
-    /// <summary>Linear/Inverse offset.</summary>
+    /// <summary>Linear/Inverse offset, or the Power curve's always-on floor.</summary>
     public float Offset { get; init; } = 0f;
 
     /// <summary>Power exponent (Power only). &gt;1 = ignore small inputs; &lt;1 = react early.</summary>
@@ -45,7 +45,7 @@ public sealed class ResponseCurve
         {
             CurveType.Linear => Slope * x + Offset,
             CurveType.Inverse => Slope * (1f - x) + Offset,
-            CurveType.Power => (float)Math.Pow(x, Exponent),
+            CurveType.Power => Offset + (float)Math.Pow(x, Exponent),
             CurveType.Logistic => 1f / (1f + (float)Math.Exp(-Steepness * (x - Midpoint))),
             _ => x,
         };

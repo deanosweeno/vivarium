@@ -40,4 +40,33 @@ public class SteeringTests
         var p = new Vector3(3, 0, 3);
         Assert.Equal(Vector3.Zero, Steering.Cohesion(p, p, maxSpeed: 2f, slowRadius: 1f));
     }
+
+    [Fact]
+    public void Separation_BeyondPersonalSpace_IsZero()
+    {
+        var self = new Vector3(0, 0, 0);
+        var neighbor = new Vector3(5, 0, 0);  // outside a 2-unit personal space
+        Assert.Equal(Vector3.Zero, Steering.Separation(self, neighbor, maxSpeed: 2f, personalSpace: 2f));
+    }
+
+    [Fact]
+    public void Separation_PushesDirectlyAwayFromNeighbor()
+    {
+        var self = new Vector3(0, 0, 0);
+        var neighbor = new Vector3(1, 0, 0);  // 1 unit inside a 2-unit personal space, on +X
+        var v = Steering.Separation(self, neighbor, maxSpeed: 2f, personalSpace: 2f);
+
+        Assert.True(v.X < 0f, "should steer away (−X) from the neighbor");
+        Assert.Equal(0f, v.Z, 5);
+    }
+
+    [Fact]
+    public void Separation_RampsUpAsNeighborGetsCloser()
+    {
+        var self = new Vector3(0, 0, 0);
+        var far = Steering.Separation(self, new Vector3(1.5f, 0, 0), maxSpeed: 2f, personalSpace: 2f);
+        var near = Steering.Separation(self, new Vector3(0.5f, 0, 0), maxSpeed: 2f, personalSpace: 2f);
+
+        Assert.True(near.Length() > far.Length(), "closer neighbor → stronger push");
+    }
 }
