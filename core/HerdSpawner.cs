@@ -38,6 +38,21 @@ public sealed record HerdSpawnConfig
 public static class HerdSpawner
 {
     /// <summary>
+    /// Spawn herds from a data-driven <see cref="CreatureDef"/> (its traits, drives, herd config,
+    /// and body plan). Throws if the def has no <see cref="CreatureDef.Herd"/> — a non-herding type.
+    /// </summary>
+    public static List<Creature> SpawnHerds(
+        Simulator sim, ICreatureFactory factory, CreatureDef def, MapData map, Random rng)
+    {
+        if (def.Herd is null)
+            throw new InvalidOperationException($"Creature '{def.Id}' has no Herd config to spawn from.");
+        return SpawnHerds(sim, factory,
+            def.Traits ?? CreatureTraits.Default,
+            def.Drives ?? Drives.Default,
+            map, def.Herd, rng, def.Body);
+    }
+
+    /// <summary>
     /// Spawn herds according to <paramref name="config"/> using the given factory,
     /// traits, and drives. Returns all spawned creatures.
     /// </summary>

@@ -77,10 +77,33 @@ public readonly struct SenseContext
     /// The SeekFlock steering smoothly approaches this point.</summary>
     public Vector3 NearestFlockAnchor { get; init; }
 
+    // --- player awareness (the taming channel) ---
+
+    /// <summary>Whether the player avatar is within sense radius. When false the player-reaction
+    /// actions (FleePlayer/FollowPlayer) score zero and the creature ignores the player.</summary>
+    public bool HasPlayer { get; init; }
+
+    /// <summary>The player's position (valid only when <see cref="HasPlayer"/>). For FleePlayer/FollowPlayer steering.</summary>
+    public Vector3 PlayerPosition { get; init; }
+
+    /// <summary>1 when the player is touching, 0 at/beyond sense radius (or absent). For the player-reaction considerations.</summary>
+    public float PlayerProximity { get; init; }
+
+    /// <summary>Whether the player currently holds food — flips a wary creature from fleeing to following (the lure).</summary>
+    public bool PlayerHoldingFood { get; init; }
+
+    /// <summary>Whether the player is currently a threat to this creature, as decided by the
+    /// injected <see cref="IFleeStrategy"/>. 1 = threat, 0 = safe (holding food, bonded, etc.).</summary>
+    public bool IsPlayerThreat { get; init; }
+
     // Needs are copied in so the brain reads everything from one struct.
     public float Hunger { get; init; }
     public float Fatigue { get; init; }
     public float Boredom { get; init; }
+
+    /// <summary>This creature's bond with the player [0,1] — gates how strongly it flees (suppressed
+    /// as the bond grows). Copied from <see cref="CreatureNeeds.Affection"/>.</summary>
+    public float Affection { get; init; }
 
     // --- biome awareness ---
 

@@ -10,11 +10,13 @@ namespace Vivarium.Core;
 public sealed class BlobFactory : ICreatureFactory
 {
     private readonly BehaviorConfig _behavior;
+    private readonly IFleeStrategy _fleeStrategy;
     private readonly Random _rng;
 
-    public BlobFactory(BehaviorConfig behavior, Random rng)
+    public BlobFactory(BehaviorConfig behavior, IFleeStrategy fleeStrategy, Random rng)
     {
         _behavior = behavior;
+        _fleeStrategy = fleeStrategy;
         _rng = rng;
     }
 
@@ -29,7 +31,7 @@ public sealed class BlobFactory : ICreatureFactory
         var blob = new Blob(position, r, g, b, ctx.Rng, traits: traits, drives: drives)
         {
             Movement = movement ?? new SteeringLocomotion(),
-            Brain = new UtilityBrain(_behavior),
+            Brain = new UtilityBrain(_behavior, _fleeStrategy),
             Diet = traits.Diet is { } d ? new HashSet<string>(d) : null,
         };
         return blob;

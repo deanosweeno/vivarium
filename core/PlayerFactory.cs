@@ -23,6 +23,7 @@ public sealed class PlayerFactory : ICreatureFactory
         {
             Movement = input,
             Brain = null, // input drives movement directly
+            IsPlayer = true,
         };
     }
 }

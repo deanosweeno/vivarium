@@ -90,6 +90,44 @@ public class CreatureCatalogTests
     }
 
     [Fact]
+    public void Parses_OptionalSimSections_IntoDef()
+    {
+        const string json = """
+            [
+              {
+                "Id": "sheep",
+                "Parts": [ { "Slot": "Core" } ],
+                "Traits": { "Radius": 0.6, "MaxSpeed": 0.6, "GravityScale": 0.0,
+                            "PreferredBiomes": ["Plains"], "Diet": ["berries"], "GrazeHungerThreshold": 0.2 },
+                "Drives": { "Sociability": 0.9, "Fear": 0.15 },
+                "Herd": { "HerdCount": 3, "Biome": "Plains", "HerdSizeMin": 4, "HerdSizeMax": 6 }
+              }
+            ]
+            """;
+        var def = CreatureCatalog.Parse(json).GetDef("sheep")!;
+
+        Assert.Equal(0.6f, def.Traits!.Radius, 5);
+        Assert.Equal(0f, def.Traits.GravityScale, 5);
+        Assert.Contains("Plains", def.Traits.PreferredBiomes);
+        Assert.True(def.Traits.Diet!.Contains("berries"));
+        Assert.Equal(0.2f, def.Traits.GrazeHungerThreshold, 5);
+        Assert.Equal(0.9f, def.Drives!.Sociability, 5);
+        Assert.Equal(0.15f, def.Drives.Fear, 5);
+        Assert.Equal(3, def.Herd!.HerdCount);
+        Assert.Equal(Biome.Plains, def.Herd.Biome);
+    }
+
+    [Fact]
+    public void DefWithoutSimSections_HasNullTraitsDrivesHerd()
+    {
+        var def = CreatureCatalog.Parse(Json).GetDef("sprout")!;
+        Assert.Null(def.Traits);
+        Assert.Null(def.Drives);
+        Assert.Null(def.Herd);
+        Assert.NotNull(def.Body);   // body always present
+    }
+
+    [Fact]
     public void Parse_IsDeterministic()
     {
         var a = CreatureCatalog.Parse(Json).Get("sprout")!;

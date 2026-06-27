@@ -11,6 +11,7 @@ namespace Vivarium.Scripts;
 public partial class PlayerVisual : Node3D
 {
     private Blob _model = null!;
+    private IPlayerAnimation _animator = null!;
 
     public void Init(Blob model)
     {
@@ -36,19 +37,26 @@ public partial class PlayerVisual : Node3D
         };
         AddChild(head);
 
-        // Arms — left and right boxes
+        // Arms — left and right boxes, kept as refs so the animator can swing them.
         var armMeshL = new BoxMesh { Size = new Vector3(0.28f, 0.12f, 0.12f) };
         var armMeshR = new BoxMesh { Size = new Vector3(0.28f, 0.12f, 0.12f) };
 
-        AddChild(new MeshInstance3D { Mesh = armMeshL, MaterialOverride = mat, Position = new Vector3(-0.32f, 0.15f, 0f) });
-        AddChild(new MeshInstance3D { Mesh = armMeshR, MaterialOverride = mat, Position = new Vector3( 0.32f, 0.15f, 0f) });
+        var armL = new MeshInstance3D { Mesh = armMeshL, MaterialOverride = mat, Position = new Vector3(-0.32f, 0.15f, 0f) };
+        var armR = new MeshInstance3D { Mesh = armMeshR, MaterialOverride = mat, Position = new Vector3( 0.32f, 0.15f, 0f) };
+        AddChild(armL);
+        AddChild(armR);
 
-        SyncFromModel();
+        _animator = new PrimitivePlayerAnimator(armL, armR);
+
+        SyncFromModel(0d);
     }
 
-    public void SyncFromModel()
+    /// <summary>Snap to the model's position, then let the animation seam apply per-frame motion
+    /// (bob/squash) driven by the core's <see cref="PlayerState"/>.</summary>
+    public void SyncFromModel(double delta)
     {
         if (_model == null) return;
         Position = new Vector3(_model.Position.X, _model.Position.Y, _model.Position.Z);
+        _animator.Apply(this, _model.PlayerState, delta);
     }
 }

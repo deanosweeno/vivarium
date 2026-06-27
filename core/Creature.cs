@@ -51,6 +51,21 @@ public class Creature
     public CreatureNeeds Needs { get; }
 
     /// <summary>
+    /// True for the single player-controlled avatar. Lets the Simulator single the player out of
+    /// the generic neighbour/flock scan and expose it as a dedicated <see cref="SenseContext"/>
+    /// channel (player proximity), so creatures can react to the player specifically — flee a
+    /// stranger, follow when it carries food. Set by <see cref="PlayerFactory"/>.
+    /// </summary>
+    public bool IsPlayer { get; internal set; }
+
+    /// <summary>
+    /// Animation-facing state for the player avatar — Idle/Walking/Interacting plus the last verb
+    /// id. Written each tick by <see cref="PlayerController.UpdateState"/>; read by the Godot visual
+    /// layer to pick a pose/clip. Meaningful only when <see cref="IsPlayer"/>; defaults to Idle.
+    /// </summary>
+    public PlayerState PlayerState { get; internal set; } = PlayerState.Idle;
+
+    /// <summary>
     /// The creature's tailored body description — primitive parts at sockets, palette, scale.
     /// Read by the engine's CreatureVisual to assemble + procedurally animate the creature.
     /// Null = no body plan (falls back to the legacy cube visual). The data seed of the future
@@ -103,6 +118,13 @@ public class Creature
     /// only when an individual need outscores it and returning once satisfied.
     /// </summary>
     public Flock? Flock { get; internal set; }
+
+    /// <summary>
+    /// The sense snapshot built for this creature during the current tick by
+    /// <see cref="Simulator.BuildSenses"/>. Cached so the flock-advancement loop can
+    /// read member threat status without recomputing player position/distance checks.
+    /// Internal — only the Simulator and Flock consume it.</summary>
+    internal SenseContext LastSenses;
 
     /// <summary>
     /// Create a creature at the given position with specified traits and

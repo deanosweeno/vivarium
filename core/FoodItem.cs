@@ -22,6 +22,9 @@ public sealed class FoodItem
     /// <summary>Whether the item can currently be eaten.</summary>
     public bool Available => Amount > 0f;
 
+    /// <summary>Whether the player can pick this item up right now — its type permits it and it's grown.</summary>
+    public bool Pickable => Def.Pickable && Available;
+
     /// <summary>Seconds left until a depleted item regrows. Counts down only while <see cref="Amount"/> is 0.</summary>
     public float RespawnTimer { get; set; }
 
@@ -42,6 +45,19 @@ public sealed class FoodItem
             RespawnTimer = Def.RespawnSeconds;
         }
         return eaten * Def.Nutrition;
+    }
+
+    /// <summary>
+    /// Pick the whole item up off the ground: empties it and arms the respawn timer so it regrows
+    /// in place later (reuses the graze depletion machinery). Returns false — leaving the item
+    /// untouched — when it isn't <see cref="Pickable"/>.
+    /// </summary>
+    public bool Pluck()
+    {
+        if (!Pickable) return false;
+        Amount = 0f;
+        RespawnTimer = Def.RespawnSeconds;
+        return true;
     }
 
     /// <summary>

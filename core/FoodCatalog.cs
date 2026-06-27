@@ -52,6 +52,7 @@ public sealed class FoodCatalog
                 GrazeRate = dto.GrazeRate ?? fallback.GrazeRate,
                 RespawnSeconds = dto.RespawnSeconds ?? fallback.RespawnSeconds,
                 ColorHex = dto.ColorHex ?? fallback.ColorHex,
+                Pickable = dto.Pickable ?? fallback.Pickable,
             };
         }
 
@@ -84,5 +85,6 @@ public sealed class FoodCatalog
         public float? GrazeRate { get; set; }
         public float? RespawnSeconds { get; set; }
         public string? ColorHex { get; set; }
+        public bool? Pickable { get; set; }
     }
 }

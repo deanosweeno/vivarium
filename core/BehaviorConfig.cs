@@ -50,6 +50,14 @@ public sealed class BehaviorConfig
     /// preferred terrain.</summary>
     public float BiomeGradientWeight { get; init; } = 0.3f;
 
+    /// <summary>Half-extent (in map cells) of the coarse scan for the nearest preferred-biome
+    /// cell when a creature is outside its biome. Larger = sees farther, costs more per tick.</summary>
+    public int BiomeSearchCells { get; init; } = 12;
+
+    /// <summary>Cell stride of that coarse biome scan — every Nth cell is sampled, trading
+    /// precision for speed (a full per-cell scan is O(map²)).</summary>
+    public int BiomeSearchStep { get; init; } = 2;
+
     /// <summary>
     /// Minimum <see cref="Genetics.Similarity"/> for another creature to count as herd-mate, so a
     /// creature flocks only with genetically similar kin (and near-kin hybrids), not any neighbor.
@@ -63,6 +71,19 @@ public sealed class BehaviorConfig
     /// avoidance term shared by the Approach and Flock steering, keeping noses out of faces.
     /// </summary>
     public float PersonalSpaceRadii { get; init; } = 4f;
+
+    /// <summary>Width of the steering slow-down band, in multiples of the creature's own
+    /// <see cref="CreatureTraits.Radius"/>, used by Approach's Standoff and Forage's Arrive to
+    /// ease the final approach instead of braking abruptly.</summary>
+    public float SteeringSlowRadiusRadii { get; init; } = 2f;
+
+    /// <summary>Fraction of a flock member's speed cap that its separation push may reach. Clamps
+    /// separation so a dense pack can't out-shove cohesion and explode the herd.</summary>
+    public float FlockSeparationCapFraction { get; init; } = 0.5f;
+
+    /// <summary>Weight of the darty frolic drift mixed into the anchor pull while a flocked
+    /// creature frolics — keeps play tethered to the herd instead of bolting.</summary>
+    public float FrolicDriftWeight { get; init; } = 0.5f;
 
     /// <summary>
     /// Shared social idle-drift floor: fraction of max speed of wander drift mixed into the
@@ -91,6 +112,10 @@ public sealed class BehaviorConfig
 
     /// <summary>Per-√member growth of the flock circle radius — keeps a larger herd uncramped.</summary>
     public float FlockRadiusPerMember { get; init; } = 0.6f;
+
+    /// <summary>Minimum number of nearby kin required to seed a new flock.  Below this threshold
+    /// unflocked kin remain solitary.  Default 3 (sheep herd-of-three rule).</summary>
+    public int FlockMinSize { get; init; } = 3;
 
 
 
@@ -142,6 +167,38 @@ public sealed class BehaviorConfig
 
     /// <summary>Maximum seconds a frolicking creature holds a darty direction before re-rolling.</summary>
     public float FrolicDwellMax { get; init; } = 0.9f;
+
+    // --- player interaction & taming ---
+
+    /// <summary>Affection at/above which the pet verbs (Soothe/Play) become available — the
+    /// creature has warmed up enough to be handled. Below it, pet attempts no-op.</summary>
+    public float PartialBondThreshold { get; init; } = 0.4f;
+
+    /// <summary>Affection at/above which a creature counts as fully tamed (reserved for follow-always
+    /// and breeding hooks; not gating behaviour in v1).</summary>
+    public float FullBondThreshold { get; init; } = 0.85f;
+
+    /// <summary>Horizontal distance (arena units) within which a player interaction (feed/soothe/play)
+    /// can land on the nearest creature.</summary>
+    public float InteractReach { get; init; } = 1.5f;
+
+    /// <summary>Hunger removed by one feed.</summary>
+    public float FeedHungerRelief { get; init; } = 0.5f;
+
+    /// <summary>Affection gained per feed — the primary trust-builder.</summary>
+    public float FeedBond { get; init; } = 0.2f;
+
+    /// <summary>Fatigue removed by one soothe (calm pet lets the creature rest).</summary>
+    public float SootheFatigueRelief { get; init; } = 0.5f;
+
+    /// <summary>Affection gained per soothe.</summary>
+    public float SootheBond { get; init; } = 0.15f;
+
+    /// <summary>Boredom removed by one play interaction.</summary>
+    public float PlayBoredomRelief { get; init; } = 0.5f;
+
+    /// <summary>Affection gained per play.</summary>
+    public float PlayBond { get; init; } = 0.15f;
 
     // --- action table ---
 
@@ -286,6 +343,53 @@ public sealed class BehaviorConfig
             [
                 new Consideration { Input = InputKind.Boredom,
                     Curve = new ResponseCurve { Type = CurveType.Power, Exponent = 10f } },
+            ],
+        },
+
+        // FleePlayer — a creature latches into a panic flee when the player is a threat
+        // (strategy-owned decision: sheep flee unless food is offered). Emergency-capable
+        // so it can interrupt a committed Flock/Wander; latched so it stays panicked until
+        // the player leaves SafeDistance or the creature rejoins its flock. Isolated
+        // creatures score high when threatened; flocked creatures score zero (the flock
+        // flees as a group instead).
+        new BehaviorAction
+        {
+            Name = "FleePlayer",
+            Steering = SteeringKind.AvoidPlayer,
+            BaseWeight = 1f,
+            EmergencyCapable = true,
+            EmergencyThreshold = 0.6f,
+            Considerations =
+            [
+                // Threat gate: 1 when the player is a threat, 0 otherwise → kills the
+                // action when the player is safe (holding food, bonded, out of range).
+                new Consideration { Input = InputKind.PlayerThreat, Drive = DriveKind.Fear },
+                // Proximity: a closer player means more urgency. 0 when the player is
+                // at/beyond sense radius, 1 when touching.
+                new Consideration { Input = InputKind.PlayerProximity, Drive = DriveKind.Fear,
+                    Curve = new ResponseCurve { Type = CurveType.Power, Exponent = 0.6f } },
+                // Isolation gate: Inverse curve on HerdPresence so the action scores
+                // 1 when isolated (HerdPresence=0 → Inverse=1), 0 when flocked
+                // (HerdPresence=1 → Inverse=0). Flock-level flee handles the group case.
+                new Consideration { Input = InputKind.HerdPresence,
+                    Curve = new ResponseCurve { Type = CurveType.Inverse } },
+            ],
+        },
+
+        // FollowPlayer — the lure. When the player carries food, a creature in range looks at and
+        // eases toward the player so it can be walked into feeding range. Keyed purely on
+        // proximity × holding-food, so it fires regardless of bond (a hungry stranger still comes
+        // for food) yet vanishes the moment the food is put away.
+        new BehaviorAction
+        {
+            Name = "FollowPlayer",
+            Steering = SteeringKind.FollowPlayer,
+            BaseWeight = 1f,
+            Considerations =
+            [
+                new Consideration { Input = InputKind.PlayerProximity,
+                    Curve = new ResponseCurve { Type = CurveType.Power, Exponent = 0.6f } },
+                new Consideration { Input = InputKind.PlayerHoldingFood },
             ],
         },
     ];

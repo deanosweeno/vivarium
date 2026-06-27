@@ -20,13 +20,14 @@ public sealed class Simulator : IFlockEnv
 
     /// <summary>
     /// Active flocks (explicit group entities). Formed, grown, merged, and pruned each
-    /// <see cref="BehaviorConfig.DecisionInterval"/> by <see cref="UpdateFlocks"/>; each flock's
+    /// <see cref="BehaviorConfig.DecisionInterval"/> by <see cref="FlockManager"/>; each flock's
     /// anchor is then advanced so its member circle drifts as one. Read by the visual layer if it
     /// wants to draw group state.
     /// </summary>
     public List<Flock> Flocks { get; } = new();
 
-    private double _flockTimer;
+    /// <summary>Reconciles flock membership (form/join/leave/merge) each decision interval.</summary>
+    private readonly FlockManager _flockManager = new();
 
     /// <summary>
     /// Global gravity constant applied to all creatures each tick.
@@ -58,6 +59,12 @@ public sealed class Simulator : IFlockEnv
     public BehaviorConfig Behavior { get; set; } = new();
 
     /// <summary>
+    /// Injected flee-from-player strategy — owns all flee tunables (speed, direction, threat
+    /// detection). The Simulator passes this to creature brains and flock anchors so flee
+    /// behavior is per-creature-type without coupling the brain to a specific creature.</summary>
+    public IFleeStrategy FleeStrategy { get; set; } = new SheepFleeStrategy(new BehaviorConfig().PartialBondThreshold);
+
+    /// <summary>
     /// Growable food items in the world. Creatures graze these to satisfy Hunger; depleted
     /// items regrow on a timer (see <see cref="FoodItem"/>). Seeded by <see cref="SeedFood"/>.
     /// </summary>
@@ -74,6 +81,18 @@ public sealed class Simulator : IFlockEnv
 
     /// <summary>Total number of entities in the simulation.</summary>
     public int EntityCount => Entities.Count;
+
+    /// <summary>
+    /// The player-controlled avatar, or null before <see cref="SpawnPlayer"/> runs. Singled out of
+    /// the generic neighbour scan so creatures can react to it specifically (flee / follow), and
+    /// the source of the player-interaction intents resolved each tick.
+    /// </summary>
+    public Creature? Player { get; private set; }
+
+    /// <summary>Drives the player's compositional spine: routes input intents to interaction verbs
+    /// and derives the avatar's <see cref="PlayerState"/>. Verbs registered in
+    /// <see cref="PlayerInteractions.Default"/>.</summary>
+    private readonly PlayerController _playerController = new(PlayerInteractions.Default());
 
     public Simulator(Arena arena, int seed = 0)
     {
@@ -120,7 +139,7 @@ public sealed class Simulator : IFlockEnv
     /// </summary>
     public Blob SpawnBlob(Vector3 position, CreatureTraits? traits, Drives? drives)
         => (Blob)Spawn(position,
-               new BlobFactory(Behavior, Rng),
+               new BlobFactory(Behavior, FleeStrategy, Rng),
                new OverlapAvoidingPlacement(ArenaClampPlacement.Instance),
                traits ?? Blob.DefaultBlobTraits,
                null,
@@ -151,6 +170,7 @@ public sealed class Simulator : IFlockEnv
                              new OverlapAvoidingPlacement(ArenaClampPlacement.Instance),
                              traits);
         var blob = (Blob)creature;
+        Player = blob;
         return (blob, (PlayerInputMode)blob.Movement);
     }
 
@@ -217,6 +237,9 @@ public sealed class Simulator : IFlockEnv
         foreach (var item in Food)
             item.Regrow(fdt);
 
+        // --- Player interactions (feed / soothe / play) consume this frame's intents ---
+        ResolvePlayerInteractions();
+
         // --- Per-entity pipeline ---
         foreach (var entity in Entities)
         {
@@ -236,6 +259,7 @@ public sealed class Simulator : IFlockEnv
                     entity.SeparationTimer += (float)delta;
 
                 var senses = BuildSenses(entity);
+                entity.LastSenses = senses;
                 entity.Brain.Tick(delta, entity, senses, Rng);
                 entity.FocusPosition = ResolveFocus(entity.Brain.Current?.Steering, senses);
 
@@ -284,10 +308,32 @@ public sealed class Simulator : IFlockEnv
             }
         }
 
+        // --- Player animation state (Idle/Walking/Interacting) from the movement + verb seams ---
+        if (Player is not null)
+            _playerController.UpdateState(Player, delta);
+
         // --- Flocks: re-group membership periodically, then drift each flock's anchor as one ---
-        UpdateFlocks(delta);
+        _flockManager.Update(delta, Entities, Flocks, Behavior, GroundFloor);
         foreach (var flock in Flocks)
-            flock.AdvanceAnchor(delta, Arena, Rng, this, Behavior);
+        {
+            // Does any member of this flock see the player as a threat?
+            // If so, the whole flock bolts — anchor moves away, members cohere.
+            bool flockFlee = false;
+            Vector3 playerPos = Vector3.Zero;
+            if (FleeStrategy.FlockFleesAsGroup)
+            {
+                foreach (var m in flock.Members)
+                {
+                    if (m.LastSenses.IsPlayerThreat && m.LastSenses.HasPlayer)
+                    {
+                        flockFlee = true;
+                        playerPos = m.LastSenses.PlayerPosition;
+                        break;
+                    }
+                }
+            }
+            flock.AdvanceAnchor(delta, Arena, Rng, this, Behavior, FleeStrategy, flockFlee, playerPos);
+        }
 
         // --- Grazing: foraging creatures eat the food they've reached ---
         ResolveGrazing(delta);
@@ -355,150 +401,8 @@ public sealed class Simulator : IFlockEnv
     /// stay deterministic.
     /// </summary>
     internal SenseContext BuildSenses(Creature self)
-    {
-        float radius = Behavior.SenseRadius;
-
-        // Nearest neighbor (horizontal distance). One pass over the entity list.
-        Creature? nearest = null;
-        float nearestDist = float.MaxValue;
-        // Personal space and the running separation push, summed over every crowding body so a
-        // creature is shoved out of a clump, not just away from its single nearest neighbor.
-        float personalSpace = self.Traits.Radius * Behavior.PersonalSpaceRadii;
-        var separationPush = Vector3.Zero;
-        foreach (var other in Entities)
-        {
-            if (ReferenceEquals(other, self)) continue;
-            var d = other.Position - self.Position;
-            float dist = MathF.Sqrt(d.X * d.X + d.Z * d.Z);
-            if (dist < nearestDist)
-            {
-                nearestDist = dist;
-                nearest = other;
-            }
-            // Avoidance reacts to ANY body in personal space, summed (a weighted away-vector, deeper
-            // intrusion = stronger push). Skip exact overlap — ResolveEntityCollisions handles that.
-            if (dist < personalSpace && dist > 1e-4f)
-                separationPush += new Vector3(-d.X, 0f, -d.Z) / dist * (1f - dist / personalSpace);
-        }
-
-        bool hasNeighbor = nearest is not null && nearestDist <= radius;
-        float proximity = hasNeighbor ? 1f - nearestDist / radius : 0f;
-
-        // Flock cohesion targets the creature's flock anchor (an explicit group entity managed by
-        // UpdateFlocks), not a live kin centroid — the herd moves as one circle around the anchor.
-        var flock = self.Flock;
-        bool hasFlock = flock is { Members.Count: > 0 };
-        Vector3 flockAnchor = hasFlock ? flock!.Anchor : self.Position;
-        float flockRadius = hasFlock ? flock!.Radius : 0f;
-
-        // Nearest available food this creature can eat (horizontal distance). Always populated
-        // so Forage can path to food even when it's outside immediate sense range.
-        var (foodItem, foodDist) = NearestFood(self.Position, self.Diet);
-        float foodSenseRadius = Behavior.FoodSenseRadius;
-        bool hasFood = foodItem is not null && foodDist <= foodSenseRadius;
-        float foodProximity = hasFood ? 1f - foodDist / foodSenseRadius : 0f;
-
-        // --- biome awareness ---
-        Biome currentBiome = Biome.Plains;
-        float biomeComfort = 1f;
-        Vector3 biomePush = Vector3.Zero;
-        if (Map is not null && Biomes is not null && self.Traits.PreferredBiomes.Count > 0)
-        {
-            currentBiome = Map.BiomeAt(self.Position);
-            var preferred = self.Traits.PreferredBiomes;
-            biomeComfort = preferred.Contains(currentBiome.ToString()) ? 1f : 0f;
-
-            // If outside a preferred biome, compute a push toward the nearest preferred cell.
-            // Scans a coarse grid (every 2 cells) for speed; a full per-cell scan is O(map²).
-            if (biomeComfort < 1f)
-            {
-                float bestDist = float.MaxValue;
-                int bestCx = 0, bestCz = 0;
-                var (sx, sz) = Map.WorldToCell(self.Position);
-                // Search radius in cells — cap at map bounds
-                int searchCells = 12;
-                int minCx = Math.Max(0, sx - searchCells);
-                int maxCx = Math.Min(Map.Width - 1, sx + searchCells);
-                int minCz = Math.Max(0, sz - searchCells);
-                int maxCz = Math.Min(Map.Depth - 1, sz + searchCells);
-                for (int cx = minCx; cx <= maxCx; cx += 2)
-                {
-                    for (int cz = minCz; cz <= maxCz; cz += 2)
-                    {
-                        if (!preferred.Contains(Map.GetBiome(cx, cz).ToString())) continue;
-                        float wx = (cx - Map.Width / 2f + 0.5f) * Map.CellSize;
-                        float wz = (cz - Map.Depth / 2f + 0.5f) * Map.CellSize;
-                        float dx = wx - self.Position.X;
-                        float dz = wz - self.Position.Z;
-                        float d2 = dx * dx + dz * dz;
-                        if (d2 < bestDist)
-                        {
-                            bestDist = d2;
-                            bestCx = cx;
-                            bestCz = cz;
-                        }
-                    }
-                }
-                if (bestDist < float.MaxValue)
-                {
-                    float wx = (bestCx - Map.Width / 2f + 0.5f) * Map.CellSize;
-                    float wz = (bestCz - Map.Depth / 2f + 0.5f) * Map.CellSize;
-                    var toTarget = new Vector3(wx - self.Position.X, 0f, wz - self.Position.Z);
-                    float len = toTarget.Length();
-                    if (len > 1e-6f)
-                        biomePush = toTarget / len;
-                }
-            }
-        }
-
-        // Normalized separation time for SeekFlock consideration.
-        float separationTime = MathF.Min(1f, self.SeparationTimer / Behavior.SeekFlockDelay);
-
-        // Nearest kin flock (for SeekFlock steering). Reuses the kin gate from UpdateFlocks Join.
-        bool hasNearbyFlock = false;
-        Vector3 nearestFlockAnchor = self.Position;
-        if (!hasFlock)
-        {
-            float bestFlockDist = float.MaxValue;
-            foreach (var otherFlock in Flocks)
-            {
-                if (otherFlock.Members.Count == 0) continue;
-                float d = HorizDist(self.Position, otherFlock.Anchor);
-                if (d < bestFlockDist
-                    && Genetics.Similarity(self, otherFlock.Members[0]) >= Behavior.HerdKinThreshold)
-                {
-                    bestFlockDist = d;
-                    nearestFlockAnchor = otherFlock.Anchor;
-                    hasNearbyFlock = true;
-                }
-            }
-        }
-
-        return new SenseContext
-        {
-            SelfPosition = self.Position,
-            HasNeighbor = hasNeighbor,
-            NeighborPosition = nearest?.Position ?? self.Position,
-            NeighborProximity = proximity,
-            SeparationPush = separationPush,
-            HasFlock = hasFlock,
-            FlockAnchor = flockAnchor,
-            FlockRadius = flockRadius,
-            HasFood = hasFood,
-            FoodPosition = foodItem?.Position ?? self.Position,
-            FoodDistance = foodDist,
-            FoodProximity = foodProximity,
-            SeparationTime = separationTime,
-            HasNearbyFlock = hasNearbyFlock,
-            NearestFlockAnchor = nearestFlockAnchor,
-            Hunger = self.Needs.Hunger,
-            Fatigue = self.Needs.Fatigue,
-            Boredom = self.Needs.Boredom,
-            CurrentBiome = currentBiome,
-            BiomeComfort = biomeComfort,
-            BiomePush = biomePush,
-        };
-    }
+        => PerceptionBuilder.Build(
+            self, Entities, Flocks, Player, Map, Biomes, Behavior, FleeStrategy, NearestFood);
 
     /// <summary>
     /// What the creature is looking at, given its active steering and current senses:
@@ -518,6 +422,9 @@ public sealed class Simulator : IFlockEnv
                 return senses.FlockAnchor;
             case SteeringKind.SeekFlock when senses.HasNearbyFlock:
                 return senses.NearestFlockAnchor;
+            case SteeringKind.FollowPlayer when senses.HasPlayer:
+            case SteeringKind.AvoidPlayer when senses.HasPlayer:
+                return senses.PlayerPosition;
             default:
                 return null;
         }
@@ -530,151 +437,14 @@ public sealed class Simulator : IFlockEnv
     /// <see cref="FoodDef.Id"/> is in the set is considered.
     /// </summary>
     private (FoodItem? Item, float Dist) NearestFood(Vector3 from, HashSet<string>? diet = null)
-    {
-        FoodItem? nearest = null;
-        float nearestDist = float.MaxValue;
-        foreach (var item in Food)
-        {
-            if (!item.Available) continue;
-            if (diet is { Count: > 0 } && !diet.Contains(item.Def.Id)) continue;
-            var d = item.Position - from;
-            float dist = MathF.Sqrt(d.X * d.X + d.Z * d.Z);
-            if (dist < nearestDist)
-            {
-                nearestDist = dist;
-                nearest = item;
-            }
-        }
-        return (nearest, nearestDist);
-    }
+        => Vec.NearestBy(
+            Food, from,
+            item => item.Position,
+            item => item.Available && (diet is not { Count: > 0 } || diet.Contains(item.Def.Id)));
 
     // -------------------------------------------------
     // Flock system (membership: form / join / leave / merge)
     // -------------------------------------------------
-
-    /// <summary>
-    /// Periodically (every <see cref="BehaviorConfig.DecisionInterval"/>) reconcile flock membership
-    /// over the entity list — deterministic, positions only:
-    ///   • <b>Leave</b>: drop members that have strayed past <see cref="BehaviorConfig.FlockLeaveRadius"/>.
-    ///   • <b>Join</b>: an unflocked kin within <see cref="BehaviorConfig.FlockJoinRadius"/> of an
-    ///     existing flock's anchor joins it.
-    ///   • <b>Form</b>: clusters of still-unflocked kin seed a new flock at their centroid.
-    ///   • <b>Merge</b>: flocks whose anchors close within <see cref="BehaviorConfig.FlockMergeRadius"/>
-    ///     fold the smaller into the larger.
-    /// Only brained creatures flock; the kin gate (<see cref="Genetics.Similarity"/> ≥
-    /// <see cref="BehaviorConfig.HerdKinThreshold"/>) keeps non-kin (Sprouts, the player) out.
-    /// TODO: hysteresis timer on Leave + split-on-oversize flock.
-    /// </summary>
-    private void UpdateFlocks(double delta)
-    {
-        _flockTimer -= delta;
-        if (_flockTimer > 0) return;
-        _flockTimer = Behavior.DecisionInterval;
-
-        float joinR = Behavior.FlockJoinRadius;
-        float leaveR = Behavior.FlockLeaveRadius;
-        float mergeR = Behavior.FlockMergeRadius;
-
-        // 1. Leave — drop strayed members.
-        foreach (var flock in Flocks)
-        {
-            for (int i = flock.Members.Count - 1; i >= 0; i--)
-            {
-                var m = flock.Members[i];
-                if (HorizDist(m.Position, flock.Anchor) > leaveR)
-                {
-                    m.Flock = null;
-                    flock.Members.RemoveAt(i);
-                }
-            }
-        }
-        Flocks.RemoveAll(f => f.Members.Count == 0);
-
-        // 2. Join — an unflocked kin near an existing flock's anchor joins it.
-        foreach (var e in Entities)
-        {
-            if (e.Brain is null || e.Flock is not null) continue;
-            Flock? best = null;
-            float bestD = joinR;
-            foreach (var flock in Flocks)
-            {
-                float d = HorizDist(e.Position, flock.Anchor);
-                if (d <= bestD && Genetics.Similarity(e, flock.Members[0]) >= Behavior.HerdKinThreshold)
-                {
-                    bestD = d;
-                    best = flock;
-                }
-            }
-            if (best is not null)
-            {
-                best.Members.Add(e);
-                e.Flock = best;
-            }
-        }
-
-        // 3. Form — cluster still-unflocked kin into new flocks.
-        for (int i = 0; i < Entities.Count; i++)
-        {
-            var a = Entities[i];
-            if (a.Brain is null || a.Flock is not null) continue;
-            List<Creature>? group = null;
-            for (int j = 0; j < Entities.Count; j++)
-            {
-                if (i == j) continue;
-                var b = Entities[j];
-                if (b.Brain is null || b.Flock is not null) continue;
-                if (HorizDist(a.Position, b.Position) <= joinR
-                    && Genetics.Similarity(a, b) >= Behavior.HerdKinThreshold)
-                {
-                    group ??= new List<Creature> { a };
-                    group.Add(b);
-                }
-            }
-            if (group is not null)
-            {
-                var centroid = Vector3.Zero;
-                foreach (var m in group) centroid += m.Position;
-                centroid /= group.Count;
-                var flock = new Flock(new Vector3(centroid.X, GroundFloor(centroid), centroid.Z));
-                foreach (var m in group)
-                {
-                    flock.Members.Add(m);
-                    m.Flock = flock;
-                }
-                Flocks.Add(flock);
-            }
-        }
-
-        // 4. Merge — fold a smaller flock into a nearby larger kin flock.
-        for (int i = 0; i < Flocks.Count; i++)
-        {
-            if (Flocks[i].Members.Count == 0) continue;
-            for (int j = i + 1; j < Flocks.Count; j++)
-            {
-                var fa = Flocks[i];
-                var fb = Flocks[j];
-                if (fa.Members.Count == 0) break;
-                if (fb.Members.Count == 0) continue;
-                if (HorizDist(fa.Anchor, fb.Anchor) > mergeR) continue;
-                if (Genetics.Similarity(fa.Members[0], fb.Members[0]) < Behavior.HerdKinThreshold) continue;
-
-                var (keep, drop) = fa.Members.Count >= fb.Members.Count ? (fa, fb) : (fb, fa);
-                foreach (var m in drop.Members)
-                {
-                    m.Flock = keep;
-                    keep.Members.Add(m);
-                }
-                drop.Members.Clear();
-            }
-        }
-        Flocks.RemoveAll(f => f.Members.Count == 0);
-    }
-
-    private static float HorizDist(Vector3 a, Vector3 b)
-    {
-        float dx = a.X - b.X, dz = a.Z - b.Z;
-        return MathF.Sqrt(dx * dx + dz * dz);
-    }
 
     // --- IFlockEnv: read-only world access for Flock.AdvanceAnchor ---
 
@@ -693,31 +463,7 @@ public sealed class Simulator : IFlockEnv
     /// — the Simulator doesn't care which specific <see cref="SteeringKind"/> it is.
     /// </summary>
     private void ResolveGrazing(double delta)
-    {
-        if (Food.Count == 0) return;
-        float dt = (float)delta;
-
-        foreach (var entity in Entities)
-        {
-            var action = entity.Brain?.Current;
-            bool canGraze = action?.Grazing switch
-            {
-                GrazingMode.Always => true,
-                GrazingMode.WhenHungry => entity.Needs.Hunger >= entity.Traits.GrazeHungerThreshold,
-                _ => false
-            };
-            if (!canGraze) continue;
-
-            var (item, dist) = NearestFood(entity.Position, entity.Diet);
-            if (item is null) continue;
-
-            float eatRange = entity.Traits.Radius + FoodSpawn.EatRange;
-            if (dist > eatRange) continue;
-
-            entity.Needs.Hunger -= item.Bite(dt);
-            entity.Needs.Clamp();
-        }
-    }
+        => GrazingSystem.Resolve(delta, Entities, Food.Count > 0, FoodSpawn, NearestFood);
 
     /// <summary>
     /// Advance a creature's needs by one tick. Fatigue drains while moving and recovers at
@@ -747,6 +493,20 @@ public sealed class Simulator : IFlockEnv
             n.Boredom += Behavior.BoredomGainPerSec * dt;
         n.Hunger += Behavior.HungerGainPerSec * dt;
         n.Clamp();
+    }
+
+    /// <summary>
+    /// Resolve the player's per-frame interaction intents against the nearest creature in reach.
+    /// Edge-triggered: each intent flag is consumed (cleared) whether or not it lands, so one
+    /// keypress = one interaction. Feeding needs food in hand and works on any creature (the trust
+    /// builder); the pet verbs (Soothe/Play) require the creature to have crossed
+    /// <see cref="BehaviorConfig.PartialBondThreshold"/> first. All effects raise Affection, driving
+    /// the taming arc. Deterministic — reads positions and flags only.
+    /// </summary>
+    private void ResolvePlayerInteractions()
+    {
+        if (Player is null) return;
+        _playerController.Resolve(Player, Entities, Food, Behavior, Rng);
     }
 
     // -------------------------------------------------

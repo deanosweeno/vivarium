@@ -25,6 +25,12 @@ public enum SteeringKind
     /// tick: gambol around a near neighbor (play-chase), frolic near the flock anchor, or solo
     /// zig-zag zoomies. Reads as a hoppy "pronk" in the visual; relieves Boredom as it moves.</summary>
     Frolic,
+    /// <summary>Drift away from the player at a reduced speed — a wary stranger ambling off, not
+    /// bolting. Suppressed as Affection grows and whenever the player holds food.</summary>
+    AvoidPlayer,
+    /// <summary>Ease toward the player and hold nearby — the lure that lets the player walk a
+    /// creature into feeding range (fires when the player carries food).</summary>
+    FollowPlayer,
 }
 
 /// <summary>

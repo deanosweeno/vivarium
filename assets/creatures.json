@@ -33,6 +33,36 @@
       { "Slot": "Locomotion", "Shape": "Capsule", "Size": [0.12, 0.40, 0.12], "Socket": [-0.26, 0.20, -0.30],"Tint": "#3A3530", "Role": "Limb", "Phase": 3.1416, "Freq": 5.0 },
       { "Slot": "Locomotion", "Shape": "Capsule", "Size": [0.12, 0.40, 0.12], "Socket": [0.26, 0.20, -0.30], "Tint": "#3A3530", "Role": "Limb", "Phase": 0.0,    "Freq": 5.0 },
       { "Slot": "Tail",       "Shape": "Sphere",  "Size": [0.14, 0.14, 0.14], "Socket": [0.00, 0.50, -0.56], "Tint": "#F2EFE6", "Role": "Tail", "Phase": 0.0,    "Freq": 2.5 }
-    ]
+    ],
+    "Traits": {
+      "Radius": 0.6,
+      "MaxSpeed": 0.6,
+      "JumpHeight": 2.2,
+      "TurnRate": 1.8,
+      "Acceleration": 1.6,
+      "GravityScale": 0.0,
+      "PreferredBiomes": ["Plains"],
+      "FatigueGainPerSec": 0.0033333,
+      "FatigueRecoverPerSec": 0.0222222,
+      "Diet": ["berries"],
+      "GrazeHungerThreshold": 0.2
+    },
+    "Drives": {
+      "Curiosity": 0.5,
+      "Fear": 0.15,
+      "Sociability": 0.9,
+      "Appetite": 0.8,
+      "Aggression": 0.1,
+      "PlayCuddle": 0.3
+    },
+    "Herd": {
+      "HerdCount": 3,
+      "MinHerdSeparation": 18.0,
+      "HerdJitter": 2.0,
+      "HerdSizeMin": 4,
+      "HerdSizeMax": 6,
+      "Biome": "Plains",
+      "JitterNeeds": true
+    }
   }
 ]

@@ -13,6 +13,9 @@ public enum FlockAction
     Wander,
     /// <summary>Ease the whole circle onto a nearby food patch when members are collectively hungry.</summary>
     Graze,
+    /// <summary>Flee the player as a group — the anchor bolts away at increased speed and
+    /// members cohere around it. Triggered when any member detects a player threat.</summary>
+    FleePlayer,
 }
 
 /// <summary>
@@ -64,66 +67,82 @@ public sealed class Flock
     /// Advance the flock by <paramref name="delta"/> seconds: recompute the circle radius, re-decide
     /// Wander vs Graze on a long interval, then translate the anchor (slow group pace) and rest it on
     /// the ground. Deterministic given the seeded <paramref name="rng"/>.
+    ///
+    /// When <paramref name="fleePlayer"/> is true the flock enters <see cref="FlockAction.FleePlayer"/>
+    /// immediately — the anchor bolts away from the player at strategy-driven speed, overriding any
+    /// Wander/Graze decision. Members cohere to the fleeing anchor via their normal Flock steering.
     /// </summary>
-    public void AdvanceAnchor(double delta, Arena arena, Random rng, IFlockEnv env, BehaviorConfig cfg)
+    public void AdvanceAnchor(double delta, Arena arena, Random rng, IFlockEnv env,
+        BehaviorConfig cfg, IFleeStrategy strategy, bool fleePlayer, Vector3 playerPos)
     {
         if (Members.Count == 0) return;
 
         Radius = cfg.FlockBaseRadius + cfg.FlockRadiusPerMember * MathF.Sqrt(Members.Count);
 
-        // --- Flock brain: re-decide on a long interval ---
-        _decisionTimer -= delta;
-        if (_decisionTimer <= 0)
-        {
-            _decisionTimer = cfg.FlockDecisionInterval;
-
-            float avgHunger = 0f;
-            foreach (var m in Members) avgHunger += m.Needs.Hunger;
-            avgHunger /= Members.Count;
-
-            // Members are kin, so any member's diet represents the flock's.
-            var (foodPos, hasFood) = env.NearestFood(Anchor, Members[0].Diet);
-            bool foodNear = hasFood && HorizDist(Anchor, foodPos) <= cfg.SenseRadius * cfg.FlockGrazeFoodRange;
-
-            if (avgHunger > cfg.FlockGrazeHungerThreshold && foodNear)
-            {
-                Current = FlockAction.Graze;
-                _grazeTarget = foodPos;
-            }
-            else
-            {
-                Current = FlockAction.Wander;
-            }
-        }
-
-        // --- Move the anchor ---
         Vector3 vel;
-        if (Current == FlockAction.Graze)
+
+        if (fleePlayer)
         {
-            // Ease the whole circle onto the patch; settle within a radius so it doesn't overshoot.
-            vel = Steering.Arrive(Anchor, _grazeTarget, cfg.FlockPace, Radius);
+            // Flock flee: bolt away from the player at member gallop-panic speed.
+            // The anchor's pace is the average member MaxSpeed × flee multiplier,
+            // so the herd moves in perfect lock-step — members cohere at the same cap.
+            Current = FlockAction.FleePlayer;
+            float avgMax = 0f;
+            foreach (var m in Members) avgMax += m.Traits.MaxSpeed;
+            avgMax /= Members.Count;
+            float fleeSpeed = avgMax * strategy.FleeSpeedMultiplier;
+            vel = Steering.Flee(Anchor, playerPos, fleeSpeed);
         }
         else
         {
-            _wanderTimer -= delta;
-            if (_wanderTimer <= 0 || _wanderDir.LengthSquared() < 1e-6f)
+            // --- Flock brain: re-decide on a long interval ---
+            _decisionTimer -= delta;
+            if (_decisionTimer <= 0)
             {
-                double angle = rng.NextDouble() * 2.0 * Math.PI;
-                _wanderDir = new Vector3((float)Math.Cos(angle), 0f, (float)Math.Sin(angle));
-                _wanderTimer = cfg.FlockWanderDwellMin
-                    + rng.NextDouble() * (cfg.FlockWanderDwellMax - cfg.FlockWanderDwellMin);
+                _decisionTimer = cfg.FlockDecisionInterval;
+
+                float avgHunger = 0f;
+                foreach (var m in Members) avgHunger += m.Needs.Hunger;
+                avgHunger /= Members.Count;
+
+                // Members are kin, so any member's diet represents the flock's.
+                var (foodPos, hasFood) = env.NearestFood(Anchor, Members[0].Diet);
+                bool foodNear = hasFood && Vec.HorizDist(Anchor, foodPos)
+                    <= cfg.SenseRadius * cfg.FlockGrazeFoodRange;
+
+                if (avgHunger > cfg.FlockGrazeHungerThreshold && foodNear)
+                {
+                    Current = FlockAction.Graze;
+                    _grazeTarget = foodPos;
+                }
+                else
+                {
+                    Current = FlockAction.Wander;
+                }
             }
-            vel = _wanderDir * cfg.FlockPace;
+
+            // --- Move the anchor ---
+            if (Current == FlockAction.Graze)
+            {
+                // Ease the whole circle onto the patch; settle within a radius.
+                vel = Steering.Arrive(Anchor, _grazeTarget, cfg.FlockPace, Radius);
+            }
+            else
+            {
+                _wanderTimer -= delta;
+                if (_wanderTimer <= 0 || _wanderDir.LengthSquared() < 1e-6f)
+                {
+                    double angle = rng.NextDouble() * 2.0 * Math.PI;
+                    _wanderDir = new Vector3((float)Math.Cos(angle), 0f, (float)Math.Sin(angle));
+                    _wanderTimer = cfg.FlockWanderDwellMin
+                        + rng.NextDouble() * (cfg.FlockWanderDwellMax - cfg.FlockWanderDwellMin);
+                }
+                vel = _wanderDir * cfg.FlockPace;
+            }
         }
 
         var next = Anchor + vel * (float)delta;
         next = arena.Clamp(next, Radius);            // keep the whole circle inside the arena
         Anchor = new Vector3(next.X, env.GroundFloor(next), next.Z);
-    }
-
-    private static float HorizDist(Vector3 a, Vector3 b)
-    {
-        float dx = a.X - b.X, dz = a.Z - b.Z;
-        return MathF.Sqrt(dx * dx + dz * dz);
     }
 }

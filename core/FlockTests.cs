@@ -28,6 +28,30 @@ public class FlockTests
     }
 
     [Fact]
+    public void FlockManager_FormsAndDropsMembers_InIsolation()
+    {
+        // Drive FlockManager directly (no Simulator.Tick), proving the extracted subsystem
+        // owns membership reconciliation as a standalone, testable unit.
+        var sim = MakeSim();
+        var a = Sheep(sim, new Vector3(0, 0, 0));
+        var b = Sheep(sim, new Vector3(1.5f, 0, 0));
+        var c = Sheep(sim, new Vector3(0, 0, 1.5f));
+
+        var mgr = new FlockManager();
+        var flocks = new List<Flock>();
+        mgr.Update(0.1, sim.Entities, flocks, sim.Behavior, _ => 0f);
+
+        var flock = Assert.Single(flocks);
+        Assert.Equal(3, flock.Members.Count);
+
+        // Stray b far past FlockLeaveRadius, advance past the decision interval → b is dropped.
+        b.Position = new Vector3(100, 0, 0);
+        mgr.Update(sim.Behavior.DecisionInterval, sim.Entities, flocks, sim.Behavior, _ => 0f);
+        Assert.DoesNotContain(b, flock.Members);
+        Assert.Contains(a, flock.Members);
+    }
+
+    [Fact]
     public void NearbyKin_FormASingleFlock()
     {
         var sim = MakeSim();
@@ -50,6 +74,7 @@ public class FlockTests
         var sim = MakeSim();
         Sheep(sim, new Vector3(0, 0, 0));
         Sheep(sim, new Vector3(1.5f, 0, 0));
+        Sheep(sim, new Vector3(-1f, 0, 0));
         // A distinct temperament next to them — below the kin threshold, so it stays unflocked.
         var stranger = sim.SpawnBlob(new Vector3(0, 0, 1.5f), Blob.DefaultBlobTraits,
             new Drives { Sociability = 0.1f, Fear = 0.9f, Curiosity = 0.9f, Appetite = 0.9f });
@@ -57,7 +82,7 @@ public class FlockTests
         sim.Tick(0.1);
 
         Assert.Single(sim.Flocks);
-        Assert.Equal(2, sim.Flocks[0].Members.Count);
+        Assert.Equal(3, sim.Flocks[0].Members.Count);
         Assert.Null(stranger.Flock);
     }
 
@@ -114,6 +139,7 @@ public class FlockTests
         var sim = MakeSim();
         var a = Sheep(sim, new Vector3(0, 0, 0));
         var b = Sheep(sim, new Vector3(1.5f, 0, 0));
+        var c = Sheep(sim, new Vector3(-1f, 0, 0));
         sim.Tick(0.1);   // forms the flock
 
         var flock = Assert.Single(sim.Flocks);

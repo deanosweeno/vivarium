@@ -29,6 +29,7 @@ public partial class VivariumMain : Node3D
     private PlayerInputMode? _playerInput;
     private CameraOrbit? _cameraOrbit;
     private PlayerVisual? _playerVisual;
+    private Label? _foodHudLabel;
 
     public override void _Ready()
     {
@@ -39,6 +40,17 @@ public partial class VivariumMain : Node3D
             var debugEv = new InputEventKey { Keycode = Key.F3 };
             InputMap.ActionAddEvent("debug_toggle", debugEv);
         }
+
+        // Screen-space HUD for the food-in-hand state (F pick up / G drop). Built in code — no scene HUD exists.
+        var hud = new CanvasLayer { Name = "TamingHud" };
+        AddChild(hud);
+        _foodHudLabel = new Label
+        {
+            Name = "FoodHud",
+            Position = new Vector2(16, 16),
+            Text = "Food: empty  (F to pick up)",
+        };
+        hud.AddChild(_foodHudLabel);
 
         if (_camera == null)
         {
@@ -120,10 +132,11 @@ public partial class VivariumMain : Node3D
         _sim.Foods = LoadFoods(_foodsPath);
         _sim.SeedFood();
 
-        // Load the creature body-plan catalog.
+        // Load the creature catalog (body plans + per-type sim rules).
         var creatures = LoadCreatures(_creaturesPath);
         _sproutPlan = creatures.Get("sprout");
-        _sheepPlan = creatures.Get("sheep");
+        var sheepDef = creatures.GetDef("sheep");
+        _sheepPlan = sheepDef?.Body;
 
         _foodScene ??= ResourceLoader.Load<PackedScene>("res://scenes/Food.tscn");
 
@@ -141,58 +154,20 @@ public partial class VivariumMain : Node3D
             var z = (float)(_sim.Rng.NextDouble() * 2 - 1) * spawnHalfZ;
             var blob = (Blob)_sim.Spawn(
                 new SNVector3(x, 0f, z),
-                new BlobFactory(_sim.Behavior, _sim.Rng),
+                new BlobFactory(_sim.Behavior, _sim.FleeStrategy, _sim.Rng),
                 spawnPlacement);
             blob.Body = _sproutPlan;
         }
 
-        // --- Sheep herds: Plains only, berries diet ---
-        if (mapView?.Map != null && _sheepPlan != null)
+        // --- Sheep herds: all stats/drives/herd config are data-driven (assets/creatures.json) ---
+        if (mapView?.Map != null && sheepDef?.Herd != null)
         {
-            var sheepTraits = new CreatureTraits
-            {
-                Radius = 0.6f,
-                MaxSpeed = 0.6f,
-                JumpHeight = 2.2f,
-                TurnRate = 1.8f,
-                Acceleration = 1.6f,
-                GravityScale = 0f,
-                PreferredBiomes = new List<string> { "Plains" },
-                // Suggested: ~5 min to fill fatigue, ~45 s to drain. Tune freely.
-                FatigueGainPerSec = 1f / 300f,
-                FatigueRecoverPerSec = 1f / 45f,
-                Diet = new HashSet<string> { "berries" },
-                GrazeHungerThreshold = 0.2f,
-            };
-            var sheepDrives = new Drives
-            {
-                Curiosity = 0.5f,
-                Fear = 0.15f,
-                Sociability = 0.9f,
-                Appetite = 0.8f,
-                Aggression = 0.1f,
-                PlayCuddle = 0.3f,
-            };
-            var sheepHerdConfig = new HerdSpawnConfig
-            {
-                HerdCount = 3,
-                MinHerdSeparation = 18f,
-                HerdJitter = 2f,
-                HerdSizeMin = 4,
-                HerdSizeMax = 6,
-                Biome = Biome.Plains,
-                JitterNeeds = true,
-            };
-
             HerdSpawner.SpawnHerds(
                 _sim,
-                new BlobFactory(_sim.Behavior, _sim.Rng),
-                sheepTraits,
-                sheepDrives,
+                new BlobFactory(_sim.Behavior, _sim.FleeStrategy, _sim.Rng),
+                sheepDef,
                 mapView.Map,
-                sheepHerdConfig,
-                _sim.Rng,
-                _sheepPlan);
+                _sim.Rng);
         }
 
         // Spawn the player avatar at the arena center and point the follow-camera at it.
@@ -250,6 +225,16 @@ public partial class VivariumMain : Node3D
             }
         }
 
+        // Food-in-hand HUD cue, so pick-up/drop is observable.
+        if (_foodHudLabel != null && _playerInput != null)
+        {
+            var carried = _playerInput.CarriedFood;
+            _foodHudLabel.Text = carried != null
+                ? $"Food: {carried.Name}  (G to drop)"
+                : "Food: empty  (F to pick up)";
+            _foodHudLabel.Modulate = carried != null ? Colors.LightGreen : Colors.White;
+        }
+
         // Remove all debug labels when toggled off.
         if (!_showDebug && _debugLabels.Count > 0)
         {
@@ -269,7 +254,7 @@ public partial class VivariumMain : Node3D
             }
             else
             {
-                _playerVisual.SyncFromModel();
+                _playerVisual.SyncFromModel(delta);
             }
         }
 
@@ -310,6 +295,25 @@ public partial class VivariumMain : Node3D
         float wz = -move.X * sin + move.Y * cos;
 
         _playerInput.MoveInput = new System.Numerics.Vector2(wx, wz);
+    }
+
+    /// <summary>
+    /// Edge-triggered taming verbs (POC keybinds; no InputMap actions needed):
+    ///   F = pick up food · G = drop food · 1 = feed · 2 = soothe (calm-pet) · 3 = play.
+    /// (1/2/3 avoid the Q/E camera-rotate bindings in project.godot.)
+    /// Feed/soothe/play set a one-shot intent the Simulator consumes on its next Tick.
+    /// </summary>
+    public override void _UnhandledKeyInput(InputEvent @event)
+    {
+        if (_playerInput == null || @event is not InputEventKey k || !k.Pressed || k.Echo) return;
+        switch (k.Keycode)
+        {
+            case Key.F:    _playerInput.QueueIntent("pickup"); break;
+            case Key.G:    _playerInput.QueueIntent("place"); break;
+            case Key.Key1: _playerInput.QueueIntent("feed"); break;
+            case Key.Key2: _playerInput.QueueIntent("soothe"); break;
+            case Key.Key3: _playerInput.QueueIntent("play"); break;
+        }
     }
 
     /// <summary>Keep the orbit camera centered on the avatar each frame.</summary>
@@ -399,7 +403,12 @@ public partial class VivariumMain : Node3D
         string bBar = new string('█', bFilled) + new string('░', 10 - bFilled);
         int bPct = (int)MathF.Round(boredom * 100f);
 
-        return $"{action,-10}\n  eat  {hBar} {hPct,3}%\n  rest {fBar} {fPct,3}%\n  play {bBar} {bPct,3}%";
+        float bond = blob.Needs.Affection;
+        int oFilled = Math.Clamp((int)MathF.Round(bond * 10f), 0, 10);
+        string oBar = new string('█', oFilled) + new string('░', 10 - oFilled);
+        int oPct = (int)MathF.Round(bond * 100f);
+
+        return $"{action,-10}\n  eat  {hBar} {hPct,3}%\n  rest {fBar} {fPct,3}%\n  play {bBar} {bPct,3}%\n  bond {oBar} {oPct,3}%";
     }
 
 }

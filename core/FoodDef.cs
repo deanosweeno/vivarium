@@ -32,6 +32,10 @@ public sealed class FoodDef
     /// <summary>Display color as a "#rrggbb" hex string (read by the Godot FoodVisual).</summary>
     public string ColorHex { get; init; } = "#C24B3A";
 
+    /// <summary>Whether the player can pick a grown item of this type up off the ground into hand.
+    /// Data-driven so a type can be marked un-pickable (e.g. a fixed bush) without a code change.</summary>
+    public bool Pickable { get; init; } = true;
+
     /// <summary>
     /// A neutral default for an unknown id — so a missing entry can never crash a lookup.
     /// </summary>

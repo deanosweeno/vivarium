@@ -119,7 +119,12 @@ curl -sL "$BASE/tutorials/some/path.rst" -o /home/dean/GodotDocs/local_name.md
 
 ```
 core/
-  Simulator.cs        — Main simulation loop (fixed-step tick, seeded RNG)
+  Simulator.cs        — Tick orchestration (physics/collision) + seeded RNG; delegates
+                        perception/flocking/grazing/interaction to the subsystems below
+  PerceptionBuilder.cs— Builds each creature's SenseContext (pure fn of self+world)
+  FlockManager.cs     — Flock membership reconciliation (form/join/leave/merge)
+  GrazingSystem.cs    — Resolves graze-down + Hunger relief (pure fn)
+  Vec.cs              — Shared X/Z helpers: HorizDist, generic NearestBy scan
   Arena.cs            — World bounds (X/Y/Z min/max)
   MapData.cs          — Grid-based terrain (128×128, Terrain enum, Cell struct)
   MapGenerator.cs     — Deterministic terrain generation (lakes, rocks)
@@ -130,9 +135,14 @@ core/
   WalkMode.cs         — Ground movement (gravity + jump)
   FlyMode.cs          — Free 3D movement
   UtilityBrain.cs     — AI: utility-based action selection (scored considerations)
+  BehaviorConfig.cs   — All Utility-AI tunables + action table (data-over-code home)
+  IFleeStrategy.cs    — Composable per-creature flee-from-player policy (SheepFleeStrategy)
   SenseContext.cs     — What a creature can perceive (nearby entities, terrain)
   BiomeCatalog.cs     — Biome definitions loaded from assets/biomes.json
   FoodCatalog.cs      — Food definitions loaded from assets/foods.json
+  body/CreatureCatalog.cs — Creature defs (body plan + traits/drives/herd) from creatures.json
+  body/CreatureDef.cs — Full per-type definition: BodyPlan + optional sim rules
+  HerdSpawner.cs      — Spawns herds from a CreatureDef (data-driven)
 
 scripts/
   VivariumMain.cs     — Game entry point: creates Simulator, wires up MapView
@@ -145,6 +155,7 @@ scripts/
 assets/
   biomes.json         — Biome definitions (height ranges, terrain ratios, colors)
   foods.json          — Food item catalog
+  creatures.json      — Creature catalog: body plan + traits/drives/herd config per type
   default_env.tres    — DefaultEnvironment with sky, ambient light
 ```
 

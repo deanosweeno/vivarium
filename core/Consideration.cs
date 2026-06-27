@@ -20,6 +20,15 @@ public enum InputKind
     /// <summary>0→1: normalized seconds since last belonged to any flock.
     /// 0 = just left (or still in one), 1 = been alone for ≥SeekFlockDelay.</summary>
     SeparationTime,
+    /// <summary>How close the player is: 1 touching, 0 at/over sense radius (or absent). For FleePlayer/FollowPlayer.</summary>
+    PlayerProximity,
+    /// <summary>The creature's bond with the player [0,1]. Pair with an Inverse curve for (1−affection).</summary>
+    Affection,
+    /// <summary>1 when the player holds food, else 0. Pair with an Inverse curve to suppress a term when food is out.</summary>
+    PlayerHoldingFood,
+    /// <summary>1 when the player is a threat to this creature (strategy-owned decision), else 0.
+    /// Replaces the old three-consideration gate (Proximity × Affection × HoldingFood).</summary>
+    PlayerThreat,
 }
 
 /// <summary>Which <see cref="Drives"/> weight scales a consideration (or none).</summary>
@@ -60,6 +69,10 @@ public sealed class Consideration
         InputKind.FoodProximity => ctx.FoodProximity,
         InputKind.HerdPresence => ctx.HasFlock ? 1f : 0f,
         InputKind.SeparationTime => ctx.SeparationTime,
+        InputKind.PlayerProximity => ctx.PlayerProximity,
+        InputKind.Affection => ctx.Affection,
+        InputKind.PlayerHoldingFood => ctx.PlayerHoldingFood ? 1f : 0f,
+        InputKind.PlayerThreat => ctx.IsPlayerThreat ? 1f : 0f,
         _ => 0f,
     };
 

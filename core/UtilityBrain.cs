@@ -13,6 +13,7 @@ namespace Vivarium.Core;
 public sealed class UtilityBrain
 {
     private readonly BehaviorConfig _config;
+    private readonly IFleeStrategy _fleeStrategy;
 
     private double _decisionTimer;
     private float _commitment;           // remaining commitment bonus on the current action
@@ -27,9 +28,10 @@ public sealed class UtilityBrain
     /// <summary>Name of the current action, or "" — handy for a debug overlay and tests.</summary>
     public string CurrentName => Current?.Name ?? "";
 
-    public UtilityBrain(BehaviorConfig config)
+    public UtilityBrain(BehaviorConfig config, IFleeStrategy? fleeStrategy = null)
     {
         _config = config;
+        _fleeStrategy = fleeStrategy ?? new SheepFleeStrategy();
     }
 
     /// <summary>
@@ -56,6 +58,21 @@ public sealed class UtilityBrain
     /// </summary>
     private void Decide(Drives drives, in SenseContext senses, Random rng, float elapsed)
     {
+        // Unconditional flee override: when the strategy says this creature panics at
+        // any cost, skip the entire scoring loop and immediately commit to AvoidPlayer.
+        // Gated on !HasFlock so flock-level flee handles the group case separately.
+        if (_fleeStrategy.FleeOverridesAll
+            && senses.IsPlayerThreat && senses.HasPlayer && !senses.HasFlock)
+        {
+            var fleeAction = _config.Actions
+                .FirstOrDefault(a => a.Steering == SteeringKind.AvoidPlayer);
+            if (fleeAction != null)
+            {
+                Commit(fleeAction);
+                return;
+            }
+        }
+
         BehaviorAction? best = null;
         float bestScore = float.NegativeInfinity;
         float currentScore = 0f;
@@ -100,6 +117,12 @@ public sealed class UtilityBrain
         // Rest latch: rest until fatigue is fully recovered.
         else if (Current.Steering == SteeringKind.Rest && senses.Fatigue > 0f)
             hold = 1f;
+        // FleePlayer latch: flee until the player is no longer a threat or the creature
+        // has rejoined a flock. The action's own Isolation gate already scores it 0 when
+        // HasFlock, so the latch also releases naturally once a flock is joined.
+        else if (Current.Steering == SteeringKind.AvoidPlayer
+            && senses.IsPlayerThreat && senses.HasPlayer && !senses.HasFlock)
+            hold = 1f;
 
         bool isEmergency = best.EmergencyCapable && bestScore >= best.EmergencyThreshold;
         bool beatsStickyCurrent = bestScore > currentScore + _config.SwitchMargin + _commitment + hold;
@@ -133,7 +156,7 @@ public sealed class UtilityBrain
                 // the personal-space radius; the band softens the approach over ~2 body radii.
                 float standoff = self.Traits.Radius * _config.PersonalSpaceRadii;
                 var settle = Steering.Standoff(self.Position, senses.NeighborPosition, maxSpeed,
-                    standoff, self.Traits.Radius * 2f);
+                    standoff, self.Traits.Radius * _config.SteeringSlowRadiusRadii);
                 // Idle drift floor: a settled cluster eases to a motionless Standoff equilibrium, so
                 // mix in a small wander drift to keep it gently milling instead of freezing in place
                 // (same anti-freeze trick the Flock case uses; shared Wander state stays coherent).
@@ -155,7 +178,7 @@ public sealed class UtilityBrain
                 // Simulator handles actual grazing; steering just moves toward it. No Wander
                 // fallthrough — a foraging creature targets food, it doesn't drift.
                 return Steering.Arrive(self.Position, senses.FoodPosition, maxSpeed,
-                    self.Traits.Radius * 2f);
+                    self.Traits.Radius * _config.SteeringSlowRadiusRadii);
 
             case SteeringKind.Flock:
             {
@@ -163,26 +186,34 @@ public sealed class UtilityBrain
                 if (!senses.HasFlock)
                     return Wander(delta, maxSpeed, rng);
 
+                // When the flock is fleeing the player, boost to gallop-panic speed so
+                // members match the fleeing anchor and the herd stays a tight ball.
+                // The strategy owns the formula — one knob (FleeSpeedMultiplier) controls
+                // both anchor and member flee speed.
+                float cap = self.Flock?.Current == FlockAction.FleePlayer
+                    ? _fleeStrategy.FlockFleeCap(maxSpeed)
+                    : maxSpeed;
+
                 // Smooth cohesion: Standoff toward the anchor with no fixed offset, ramping
-                // speed linearly from 0 (at anchor) to full maxSpeed (at FlockLeaveRadius).
+                // speed linearly from 0 (at anchor) to full cap (at FlockLeaveRadius).
                 // Replaces Arrive-based Cohesion which snapped to full speed at the FlockRadius
                 // boundary — a member outside the circle now accelerates smoothly back.
                 var cohere = Steering.Standoff(self.Position, senses.FlockAnchor,
-                    maxSpeed, standoff: 0f, band: _config.FlockLeaveRadius);
-                // Separation pushes out of crowders' personal space. Clamp it to half max speed so a
+                    cap, standoff: 0f, band: _config.FlockLeaveRadius);
+                // Separation pushes out of crowders' personal space. Clamp it to half cap so a
                 // dense pack can no longer out-shove cohesion and explode the herd (the old bug).
-                var separate = senses.SeparationPush * maxSpeed;
+                var separate = senses.SeparationPush * cap;
                 float sepLen = separate.Length();
-                float sepCap = maxSpeed * 0.5f;
+                float sepCap = cap * _config.FlockSeparationCapFraction;
                 if (sepLen > sepCap)
                     separate *= sepCap / sepLen;
                 // Idle drift floor: keeps a settled herd milling instead of freezing where
                 // cohere and separate both cancel to zero. Reuses the shared Wander state so
                 // the drift is coherent with a later Wander stroll.
-                var drift = Wander(delta, maxSpeed, rng) * _config.FlockWanderFloor;
+                var drift = Wander(delta, cap, rng) * _config.FlockWanderFloor;
                 var blended = cohere + separate + drift;
-                return blended.LengthSquared() > maxSpeed * maxSpeed
-                    ? Vector3.Normalize(blended) * maxSpeed
+                return blended.LengthSquared() > cap * cap
+                    ? Vector3.Normalize(blended) * cap
                     : blended;
             }
 
@@ -205,13 +236,41 @@ public sealed class UtilityBrain
                 {
                     var anchorPull = Steering.Standoff(self.Position, senses.FlockAnchor,
                         maxSpeed, standoff: 0f, band: _config.FlockLeaveRadius);
-                    var blended = anchorPull + darty * 0.5f;
+                    var blended = anchorPull + darty * _config.FrolicDriftWeight;
                     return blended.LengthSquared() > maxSpeed * maxSpeed
                         ? Vector3.Normalize(blended) * maxSpeed
                         : blended;
                 }
 
                 return darty;
+            }
+
+            case SteeringKind.AvoidPlayer:
+            {
+                // Panic flee: gallop away from the player at strategy-driven speed.
+                // An isolated creature with a kin flock in range flees toward that flock
+                // for safety; otherwise flees directly away from the player.
+                if (!senses.HasPlayer)
+                    return Wander(delta, maxSpeed, rng);
+                float speed = maxSpeed * _fleeStrategy.FleeSpeedMultiplier;
+                var target = _fleeStrategy.GetFleeTarget(
+                    self.Position, senses.PlayerPosition,
+                    senses.HasNearbyFlock ? senses.NearestFlockAnchor : null);
+                return target is Vector3 tgt
+                    ? Steering.Seek(self.Position, tgt, speed)         // flee toward flock
+                    : Steering.Flee(self.Position, senses.PlayerPosition, speed); // flee away
+            }
+
+            case SteeringKind.FollowPlayer:
+            {
+                // Approach the player eagerly when food is offered. Arrive with a small
+                // settle radius (one body-radius) so the sheep walks right up into arm's
+                // reach and the movement direction naturally turns its body to face the
+                // player. The old Standoff(standoff=2.0) left a 0.5u gap past InteractReach.
+                if (!senses.HasPlayer)
+                    return Wander(delta, maxSpeed, rng);
+                return Steering.Arrive(self.Position, senses.PlayerPosition, maxSpeed,
+                    slowRadius: self.Traits.Radius);
             }
 
             case SteeringKind.Wander:
