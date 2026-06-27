@@ -18,6 +18,8 @@ public sealed class UtilityBrain
     private float _commitment;           // remaining commitment bonus on the current action
     private Vector3 _wanderDir;
     private double _wanderTimer;
+    private Vector3 _frolicDir;
+    private double _frolicTimer;
 
     /// <summary>The action currently being executed (null until the first decision).</summary>
     public BehaviorAction? Current { get; private set; }
@@ -89,9 +91,15 @@ public sealed class UtilityBrain
         // Satiation latch: a creature mid-graze stays on Forage until it has eaten down to the
         // satiation threshold, so Flock/Approach can't yank it off the food after a single bite
         // (the oscillation we're fixing). Once Hunger drops to threshold it releases normally.
-        float hold = Current.Steering == SteeringKind.Forage && senses.Hunger > _config.SatiationThreshold
-            ? 1f
-            : 0f;
+        float hold = 0f;
+        if (Current.Steering == SteeringKind.Forage && senses.Hunger > _config.SatiationThreshold)
+            hold = 1f;
+        // Frolic latch: play until boredom is fully drained.
+        else if (Current.Steering == SteeringKind.Frolic && senses.Boredom > 0f)
+            hold = 1f;
+        // Rest latch: rest until fatigue is fully recovered.
+        else if (Current.Steering == SteeringKind.Rest && senses.Fatigue > 0f)
+            hold = 1f;
 
         bool isEmergency = best.EmergencyCapable && bestScore >= best.EmergencyThreshold;
         bool beatsStickyCurrent = bestScore > currentScore + _config.SwitchMargin + _commitment + hold;
@@ -143,11 +151,11 @@ public sealed class UtilityBrain
                     : Steering.Stop();
 
             case SteeringKind.Forage:
-                // Grazing in place is handled by the Simulator; here we only path there.
-                // No food sensed → wander to search for some.
-                return senses.HasFood
-                    ? Steering.Arrive(self.Position, senses.FoodPosition, maxSpeed, self.Traits.Radius * 2f)
-                    : Wander(delta, maxSpeed, rng);
+                // Always path toward the nearest known food. When food is within eat range the
+                // Simulator handles actual grazing; steering just moves toward it. No Wander
+                // fallthrough — a foraging creature targets food, it doesn't drift.
+                return Steering.Arrive(self.Position, senses.FoodPosition, maxSpeed,
+                    self.Traits.Radius * 2f);
 
             case SteeringKind.Flock:
             {
@@ -187,10 +195,45 @@ public sealed class UtilityBrain
                 return Wander(delta, maxSpeed, rng);
             }
 
+            case SteeringKind.Frolic:
+            {
+                // Single Frolic steering: darty zig-zag + soft anchor tether when in a flock.
+                // No flavor branching — one playful movement pattern regardless of neighbors.
+                var darty = FrolicWander(delta, maxSpeed, rng);
+
+                if (senses.HasFlock)
+                {
+                    var anchorPull = Steering.Standoff(self.Position, senses.FlockAnchor,
+                        maxSpeed, standoff: 0f, band: _config.FlockLeaveRadius);
+                    var blended = anchorPull + darty * 0.5f;
+                    return blended.LengthSquared() > maxSpeed * maxSpeed
+                        ? Vector3.Normalize(blended) * maxSpeed
+                        : blended;
+                }
+
+                return darty;
+            }
+
             case SteeringKind.Wander:
             default:
                 return Wander(delta, maxSpeed, rng);
         }
+    }
+
+    /// <summary>Energetic play roam: re-rolls direction far more often than Wander (FrolicDwell),
+    /// producing a darty zig-zag that reads as play. Owns its own timer/dir so it doesn't disturb
+    /// the shared Wander state used by settled-herd drift.</summary>
+    private Vector3 FrolicWander(double delta, float maxSpeed, Random rng)
+    {
+        _frolicTimer -= delta;
+        if (_frolicTimer <= 0 || _frolicDir.LengthSquared() < 1e-6f)
+        {
+            double angle = rng.NextDouble() * 2.0 * Math.PI;
+            _frolicDir = new Vector3((float)Math.Cos(angle), 0f, (float)Math.Sin(angle));
+            _frolicTimer = _config.FrolicDwellMin
+                + rng.NextDouble() * (_config.FrolicDwellMax - _config.FrolicDwellMin);
+        }
+        return _frolicDir * maxSpeed;
     }
 
     /// <summary>Relaxed roaming: re-roll a random XZ direction periodically, move at full speed.</summary>

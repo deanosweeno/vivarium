@@ -50,13 +50,17 @@ public readonly struct SenseContext
     /// </summary>
     public float FlockRadius { get; init; }
 
-    /// <summary>Whether any available food item is within sense radius. For Forage.</summary>
+    /// <summary>Whether any available food item is within food-sense radius (see FoodSenseRadius). For Forage.</summary>
     public bool HasFood { get; init; }
 
-    /// <summary>Nearest available food's position (valid only when <see cref="HasFood"/>).</summary>
+    /// <summary>Nearest available food's position. Always populated (unlike HasFood); the
+    /// creature knows where the nearest edible item is, even beyond immediate reach.</summary>
     public Vector3 FoodPosition { get; init; }
 
-    /// <summary>1 when food is touching, 0 at/beyond sense radius (or none). For Forage.</summary>
+    /// <summary>Horizontal distance to the nearest available food (arena units), or float.PositiveInfinity.</summary>
+    public float FoodDistance { get; init; }
+
+    /// <summary>1 when food is touching, 0 at/beyond food-sense radius (or none). For Forage.</summary>
     public float FoodProximity { get; init; }
 
     /// <summary>
@@ -77,4 +81,18 @@ public readonly struct SenseContext
     public float Hunger { get; init; }
     public float Fatigue { get; init; }
     public float Boredom { get; init; }
+
+    // --- biome awareness ---
+
+    /// <summary>The biome of the cell under the creature's position, or Plains when map is absent.</summary>
+    public Biome CurrentBiome { get; init; }
+
+    /// <summary>Comfort in current biome [0,1]. 1 = preferred, 0 = hostile (or no preference set).
+    /// Computed from CreatureTraits.PreferredBiomes in the Simulator.</summary>
+    public float BiomeComfort { get; init; }
+
+    /// <summary>Unit direction (XZ) toward the nearest cell of a preferred biome, or zero when
+    /// already in one or when no map is present. The Simulator blends this into velocity after
+    /// the brain runs so biome preference is physics, not decision-making.</summary>
+    public Vector3 BiomePush { get; init; }
 }

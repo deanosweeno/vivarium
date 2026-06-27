@@ -21,6 +21,25 @@ public enum SteeringKind
     /// <summary>Smoothly approach the nearest kin flock anchor, searching by wandering
     /// when no kin flock is in range. Triggered after SeparationTime passes threshold.</summary>
     SeekFlock,
+    /// <summary>Energetic, darty play driven by high Boredom. Chooses a flavor from senses each
+    /// tick: gambol around a near neighbor (play-chase), frolic near the flock anchor, or solo
+    /// zig-zag zoomies. Reads as a hoppy "pronk" in the visual; relieves Boredom as it moves.</summary>
+    Frolic,
+}
+
+/// <summary>
+/// How an action interacts with nearby food during <see cref="Simulator.ResolveGrazing"/>.
+/// The action declares its own grazing policy; the Simulator respects it without coupling
+/// to specific <see cref="SteeringKind"/> values.
+/// </summary>
+public enum GrazingMode
+{
+    /// <summary>Never graze (default for Rest, Flee, Frolic, Approach, SeekFlock).</summary>
+    None,
+    /// <summary>Graze nearby food unconditionally (Forage).</summary>
+    Always,
+    /// <summary>Graze when Hunger ≥ <see cref="CreatureTraits.GrazeHungerThreshold"/> (Wander, Flock).</summary>
+    WhenHungry,
 }
 
 /// <summary>
@@ -46,6 +65,12 @@ public sealed class BehaviorAction
 
     /// <summary>Score above which this action interrupts a committed action (if emergency-capable).</summary>
     public float EmergencyThreshold { get; init; } = 0.8f;
+
+    /// <summary>
+    /// Food-grazing policy for this action. The Simulator's ResolveGrazing respects this
+    /// flag — no coupling to which specific <see cref="SteeringKind"/> the action uses.
+    /// </summary>
+    public GrazingMode Grazing { get; init; } = GrazingMode.None;
 
     /// <summary>score = BaseWeight × ∏ considerations (in [0,1]).</summary>
     public float Score(in SenseContext ctx, Drives drives)

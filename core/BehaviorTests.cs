@@ -162,16 +162,70 @@ public class BehaviorTests
     }
 
     [Fact]
-    public void BoredCreature_RousesToWander_BreakingAFrozenEquilibrium()
+    public void BoredCreature_RousesToFrolic_BreakingAFrozenEquilibrium()
     {
         // A sociable creature parked with its herd would otherwise sit in the Flock equilibrium
-        // forever. Once Boredom maxes out, Wander out-scores Flock and rouses it to roam — the
-        // anti-freeze loop. (Moving then relieves Boredom, so it resettles; here we assert the rouse.)
+        // forever. Once Boredom maxes out, the high-midpoint Frolic gate spikes past Flock and
+        // rouses it to play — the anti-freeze loop. (Frolic then relieves Boredom, so it resettles.)
         var brain = new UtilityBrain(new BehaviorConfig());
         var self = MakeCreature(new Drives { Sociability = 1f, Curiosity = 1f, Fear = 0f, Appetite = 0f });
         var senses = new SenseContext { HasFlock = true, FlockAnchor = new Vector3(3, 0, 0), Boredom = 1f };
         brain.Tick(0.1, self, senses, new Random(1));
-        Assert.Equal("Wander", brain.CurrentName);
+        Assert.Equal("Frolic", brain.CurrentName);
+    }
+
+    // ---------- frolic (boredom play) ----------
+
+    [Fact]
+    public void HighBoredom_BeatsFlockHold_AndFrolics()
+    {
+        // The boredom-play gate (logistic midpoint 0.7) stays near-zero until genuinely bored,
+        // then out-scores the 0.7 Flock hold so a settled-but-bored member breaks into play.
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var self = MakeCreature(new Drives { Sociability = 1f, Curiosity = 0.5f, Fear = 0f, Appetite = 0f });
+        var senses = new SenseContext { HasFlock = true, FlockAnchor = new Vector3(3, 0, 0), Boredom = 1f };
+        brain.Tick(0.1, self, senses, new Random(1));
+        Assert.Equal("Frolic", brain.CurrentName);
+    }
+
+    [Fact]
+    public void LowBoredom_DoesNotFrolic()
+    {
+        // Below the high midpoint the gate is ~0, so a content member keeps flocking — play only
+        // arrives in bursts once boredom builds, never as a constant buzz.
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var self = MakeCreature(new Drives { Sociability = 1f, Curiosity = 1f, Fear = 0f, Appetite = 0f });
+        var senses = new SenseContext { HasFlock = true, FlockAnchor = new Vector3(3, 0, 0), Boredom = 0.3f };
+        brain.Tick(0.1, self, senses, new Random(1));
+        Assert.NotEqual("Frolic", brain.CurrentName);
+    }
+
+    [Fact]
+    public void Frolic_WithNearNeighbor_PlayChasesTowardIt()
+    {
+        // Flavor 1: a neighbor within play range pulls the frolic steering toward it (play-chase),
+        // standing off at one body-diameter rather than colliding. Neighbor on +X ⇒ net steer +X.
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var self = MakeCreature(new Drives { Curiosity = 1f, Sociability = 1f, Fear = 0f, Appetite = 0f });
+        var senses = new SenseContext
+        {
+            Boredom = 1f,
+            HasNeighbor = true, NeighborPosition = new Vector3(3, 0, 0), NeighborProximity = 0.5f,
+        };
+        brain.Tick(0.1, self, senses, new Random(1));
+        Assert.Equal("Frolic", brain.CurrentName);
+        Assert.True(self.DesiredVelocity.X > 0f, "play-chase should steer toward the neighbor");
+    }
+
+    [Fact]
+    public void Frolic_Alone_ProducesDartyMotion_NotFrozen()
+    {
+        // Flavor 3: solo zoomies — no neighbor, no flock ⇒ a non-zero darty steer at near-max speed.
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var self = MakeCreature(new Drives { Curiosity = 1f, Sociability = 0f, Fear = 0f, Appetite = 0f });
+        brain.Tick(0.1, self, new SenseContext { Boredom = 1f }, new Random(1));
+        Assert.Equal("Frolic", brain.CurrentName);
+        Assert.True(self.DesiredVelocity.LengthSquared() > 1e-4f, "solo frolic should dart, not freeze");
     }
 
     [Fact]
@@ -292,6 +346,171 @@ public class BehaviorTests
         // "Go" crosses its emergency threshold (0.95 ≥ 0.7) → interrupts despite stickiness.
         brain.Tick(0.1, self, new SenseContext { Fatigue = 0.6f, Boredom = 0.95f }, rng);
         Assert.Equal("Go", brain.CurrentName);
+    }
+
+    // ---------- frolic regression: stuck-loop + tether + play-range gate ----------
+
+    [Fact]
+    public void Forage_AlwaysPathsToNearestFood_NotWanderFallthrough()
+    {
+        // Regression: Forage steering must always Arrive at the nearest food, even when
+        // that food is beyond the general SenseRadius. No Wander fallthrough — a foraging
+        // creature targets what it can eat, it doesn't drift.
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var self = MakeCreature(new Drives { Appetite = 1f, Sociability = 0f,
+            Curiosity = 0f, Fear = 0f });
+        var rng = new Random(42);
+
+        // Food is 15u away — beyond SenseRadius (5) but within FoodSenseRadius (20).
+        // Forage steering should produce an Arrive toward it, which means DesiredVelocity.X
+        // should be positive (food is at +X).
+        brain.Tick(0.1, self, new SenseContext
+        {
+            Hunger = 1f,            // high hunger → Forage should score highest
+            HasFood = false,         // beyond SenseRadius, but food position is known
+            FoodPosition = new Vector3(15, 0, 0),
+            FoodDistance = 15f,
+        }, rng);
+        Assert.Equal("Forage", brain.CurrentName);
+        // Arrive at far-away target: steer toward +X at near-max speed.
+        Assert.True(self.DesiredVelocity.X > 0.5f,
+            $"Forage should path +X toward food, got X={self.DesiredVelocity.X}");
+        // Should NOT be random Wander — with seed=42, Wander would go to 0.248+X.
+        // An Arrive at 15+X should dominate strongly toward +X.
+    }
+
+    [Fact]
+    public void FlocklessFrolic_ReleasesWhenBoredomDrops()
+    {
+        // Regression: a flockless sheep that frolicked away from its herd must be able to stop
+        // frolicking once boredom is satiated — Wander's floor must beat Frolic+SwitchMargin.
+        // Without this fix (old SwitchMargin 0.15), the sheep stayed in Frolic forever.
+        // Use zero decision interval + instant commitment decay so the scoring math is isolated.
+        var brain = new UtilityBrain(new BehaviorConfig
+        {
+            DecisionInterval = 0f,
+            CommitmentBonus = 0f,
+        });
+        var self = MakeCreature(new Drives { Sociability = 0.9f, Curiosity = 0.5f,
+            Fear = 0f, Appetite = 0f });
+        var rng = new Random(42);
+
+        // High boredom — should commit to Frolic.
+        brain.Tick(0.1, self, new SenseContext { Boredom = 1f }, rng);
+        Assert.Equal("Frolic", brain.CurrentName);
+
+        // Second tick: zero boredom, no commitment stickiness.
+        // Wander floor (0.0675) > Frolic floor (0.0009) + SwitchMargin (0.06) = 0.0609  ✓
+        brain.Tick(0.1, self, new SenseContext { Boredom = 0f }, rng);
+        Assert.NotEqual("Frolic", brain.CurrentName);
+        Assert.Equal("Wander", brain.CurrentName);
+    }
+
+    [Fact]
+    public void Frolic_Latch_HoldsUntilBoredomZero()
+    {
+        // Frolic's latch must prevent other actions from breaking in before boredom
+        // is fully drained to 0. Without the latch, Wander would retake at ~0.4 boredom
+        // when commitment decays.
+        var brain = new UtilityBrain(new BehaviorConfig
+        {
+            DecisionInterval = 0f,
+            CommitmentBonus = 0f,  // zero commitment to isolate the latch
+        });
+        var self = MakeCreature(new Drives { Sociability = 0.9f, Curiosity = 0.5f,
+            Fear = 0f, Appetite = 0f });
+        var rng = new Random(42);
+
+        // Commit to Frolic at max boredom.
+        brain.Tick(0.1, self, new SenseContext { Boredom = 1f, HasFlock = true,
+            FlockAnchor = Vector3.Zero }, rng);
+        Assert.Equal("Frolic", brain.CurrentName);
+
+        // Boredom 0.5 — Frolic score ≈ 0.5¹⁰ ≈ 0.001, Wander would beat it easily.
+        // But the latch should hold Frolic anyway.
+        brain.Tick(0.1, self, new SenseContext { Boredom = 0.5f, HasFlock = true,
+            FlockAnchor = Vector3.Zero }, rng);
+        Assert.Equal("Frolic", brain.CurrentName);
+
+        // Boredom 0 — latch releases.
+        brain.Tick(0.1, self, new SenseContext { Boredom = 0f }, rng);
+        Assert.Equal("Wander", brain.CurrentName);
+    }
+
+    [Fact]
+    public void Rest_Latch_HoldsAtHalfFatigue()
+    {
+        var brain = new UtilityBrain(new BehaviorConfig { DecisionInterval = 0f, CommitmentBonus = 0f });
+        var self = MakeCreature(new Drives { Sociability = 0.5f, Curiosity = 0.2f, Fear = 0f, Appetite = 0f });
+        var rng = new Random(42);
+
+        brain.Tick(0.1, self, new SenseContext { Fatigue = 1f }, rng);
+        Assert.Equal("Rest", brain.CurrentName);
+
+        brain.Tick(0.1, self, new SenseContext { Fatigue = 0.5f }, rng);
+        Assert.Equal("Rest", brain.CurrentName);
+    }
+
+    [Fact]
+    public void Rest_Latch_ReleasesAtZeroFatigue()
+    {
+        var brain = new UtilityBrain(new BehaviorConfig { DecisionInterval = 0f, CommitmentBonus = 0f });
+        var self = MakeCreature(new Drives { Sociability = 0.5f, Curiosity = 1f, Fear = 0f, Appetite = 0f });
+        var rng = new Random(42);
+
+        // Commit to Rest at fatigue=1, then release at fatigue=0
+        brain.Tick(0.1, self, new SenseContext { Fatigue = 1f }, rng);
+        brain.Tick(0.1, self, new SenseContext { Fatigue = 0f }, rng);
+        Assert.NotEqual("Rest", brain.CurrentName);
+    }
+
+    [Fact]
+    public void Frolic_IgnoresNeighbor_NoPlayChase()
+    {
+        // Regression: with single Frolic (no play-chase flavor), a neighbor should NOT
+        // pull the steering — Frolic is pure darty zig-zag + optional flock tether.
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var self = MakeCreature(new Drives { Curiosity = 1f, Sociability = 1f,
+            Fear = 0f, Appetite = 0f });
+        var rng = new Random(42);
+
+        brain.Tick(0.1, self, new SenseContext
+        {
+            Boredom = 1f,
+            HasNeighbor = true,
+            NeighborPosition = new Vector3(3f, 0, 0),
+            NeighborProximity = 0.4f,
+            HasFlock = true,
+            FlockAnchor = Vector3.Zero,
+        }, rng);
+        Assert.Equal("Frolic", brain.CurrentName);
+        Assert.True(
+            self.DesiredVelocity.LengthSquared() > 0.01f,
+            "Frolic should produce movement");
+    }
+
+    [Fact]
+    public void Frolic_InFlock_StaysTetheredToAnchor()
+    {
+        // Regression: a frolicking sheep in a flock must have a component of its desired
+        // velocity pointing toward the anchor. The single Frolic steering always includes
+        // a soft anchor tether when HasFlock, so play never strands a member.
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var self = MakeCreature(new Drives { Sociability = 0.9f, Curiosity = 0.5f,
+            Fear = 0f, Appetite = 0f });
+        var rng = new Random(42);
+
+        // Sheep in flock, anchor far to the +X, Frolic steers darty + anchor pull.
+        // The anchor pull should dominate toward +X.
+        brain.Tick(0.1, self, new SenseContext
+        {
+            Boredom = 1f,
+            HasFlock = true,
+            FlockAnchor = new Vector3(10, 0, 0), // far +X
+        }, rng);
+        Assert.Equal("Frolic", brain.CurrentName);
+        Assert.True(self.DesiredVelocity.X > 0f,
+            $"frolic must pull toward anchor (+X), got X={self.DesiredVelocity.X}");
     }
 
     // ---------- determinism ----------

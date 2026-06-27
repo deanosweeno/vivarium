@@ -147,17 +147,8 @@ public partial class VivariumMain : Node3D
         }
 
         // --- Sheep herds: Plains only, berries diet ---
-        // Spawn several medium herds at separated Plains centers so the map reads as distinct
-        // flocks rather than one big clump (or lonely strays). Each herd is a tight starting
-        // cluster so flocking engages from frame one. Composed placement chain: arena clamp →
-        // biome filter → overlap avoidance — the overlap retry passes through the biome filter,
-        // so constraints survive even when sheep overlap at spawn.
         if (mapView?.Map != null && _sheepPlan != null)
         {
-            const int HerdCount = 3;            // target number of separated herds
-            const float MinHerdSeparation = 18f; // min horizontal gap between herd centers
-            const float HerdJitter = 2f;        // spawn spread around a herd center
-
             var sheepTraits = new CreatureTraits
             {
                 Radius = 0.6f,
@@ -166,41 +157,42 @@ public partial class VivariumMain : Node3D
                 TurnRate = 1.8f,
                 Acceleration = 1.6f,
                 GravityScale = 0f,
+                PreferredBiomes = new List<string> { "Plains" },
+                // Suggested: ~5 min to fill fatigue, ~45 s to drain. Tune freely.
+                FatigueGainPerSec = 1f / 300f,
+                FatigueRecoverPerSec = 1f / 45f,
+                Diet = new HashSet<string> { "berries" },
+                GrazeHungerThreshold = 0.2f,
             };
             var sheepDrives = new Drives
             {
                 Curiosity = 0.5f,
                 Fear = 0.15f,
                 Sociability = 0.9f,
-                Appetite = 0.8f,    // high enough that real hunger out-scores the 0.7 Flock hold
+                Appetite = 0.8f,
                 Aggression = 0.1f,
                 PlayCuddle = 0.3f,
             };
-            var sheepDiet = new HashSet<string> { "berries" };
-            var sheepPlacement = new BiomeFilteredPlacement(
-                new OverlapAvoidingPlacement(ArenaClampPlacement.Instance),
-                mapView.Map, Biome.Plains);
-
-            var herdCenters = PickSeparatedBiomeCenters(
-                mapView.Map, Biome.Plains, HerdCount, MinHerdSeparation, _sim.Rng);
-            foreach (var herdPos in herdCenters)
+            var sheepHerdConfig = new HerdSpawnConfig
             {
-                int herdSize = 4 + _sim.Rng.Next(0, 2); // 4–5 sheep per herd
-                for (int i = 0; i < herdSize; i++)
-                {
-                    float ox = (float)(_sim.Rng.NextDouble() * 2 - 1) * HerdJitter;
-                    float oz = (float)(_sim.Rng.NextDouble() * 2 - 1) * HerdJitter;
-                    var sheep = (Blob)_sim.Spawn(
-                        new SNVector3(herdPos.X + ox, herdPos.Y, herdPos.Z + oz),
-                        new BlobFactory(_sim.Behavior, _sim.Rng),
-                        sheepPlacement,
-                        sheepTraits,
-                        null,
-                        sheepDrives);
-                    sheep.Body = _sheepPlan;
-                    sheep.Diet = sheepDiet;
-                }
-            }
+                HerdCount = 3,
+                MinHerdSeparation = 18f,
+                HerdJitter = 2f,
+                HerdSizeMin = 4,
+                HerdSizeMax = 6,
+                Biome = Biome.Plains,
+                JitterNeeds = true,
+            };
+
+            HerdSpawner.SpawnHerds(
+                _sim,
+                new BlobFactory(_sim.Behavior, _sim.Rng),
+                sheepTraits,
+                sheepDrives,
+                mapView.Map,
+                sheepHerdConfig,
+                _sim.Rng,
+                _sheepPlan);
         }
 
         // Spawn the player avatar at the arena center and point the follow-camera at it.
@@ -373,56 +365,6 @@ public partial class VivariumMain : Node3D
         }
     }
 
-    /// <summary>
-    /// Pick one random cell of the given <paramref name="biome"/> and return its world center
-    /// (with terrain height). Returns null if no cell of that biome exists.
-    /// </summary>
-    private static System.Numerics.Vector3? PickBiomeCenter(
-        MapData map, Biome biome, System.Random rng)
-    {
-        var cells = new List<(int cx, int cz)>();
-        for (int cz = 0; cz < map.Depth; cz++)
-        for (int cx = 0; cx < map.Width; cx++)
-        {
-            if (map.GetBiome(cx, cz) == biome)
-                cells.Add((cx, cz));
-        }
-
-        if (cells.Count == 0) return null;
-
-        var (pickCx, pickCz) = cells[rng.Next(cells.Count)];
-        var center = map.CellToWorldCenter(pickCx, pickCz);
-        float py = map.HeightAt(center);
-        return new System.Numerics.Vector3(center.X, py, center.Z);
-    }
-
-    /// <summary>
-    /// Pick up to <paramref name="count"/> biome-cell centers that are each at least
-    /// <paramref name="minSep"/> apart (horizontal), so herds spawn as distinct, separated groups
-    /// rather than one clump. Returns fewer if the map can't satisfy the spacing — graceful
-    /// degradation. Deterministic for a seeded RNG; capped attempts avoid spinning forever.
-    /// </summary>
-    private static List<System.Numerics.Vector3> PickSeparatedBiomeCenters(
-        MapData map, Biome biome, int count, float minSep, System.Random rng)
-    {
-        var picks = new List<System.Numerics.Vector3>();
-        float minSepSq = minSep * minSep;
-        int attempts = count * 20;
-        while (picks.Count < count && attempts-- > 0)
-        {
-            var candidate = PickBiomeCenter(map, biome, rng);
-            if (candidate is not System.Numerics.Vector3 c) break; // no cells of this biome at all
-            bool farEnough = true;
-            foreach (var p in picks)
-            {
-                float dx = p.X - c.X, dz = p.Z - c.Z;
-                if (dx * dx + dz * dz < minSepSq) { farEnough = false; break; }
-            }
-            if (farEnough) picks.Add(c);
-        }
-        return picks;
-    }
-
     private MapView? FindMapView()
     {
         foreach (var child in GetChildren())
@@ -434,8 +376,8 @@ public partial class VivariumMain : Node3D
     }
 
     /// <summary>
-    /// Build the debug-label text for a creature: current action name, 10-segment
-    /// hunger bar (█ = filled, ░ = empty), and percentage.
+    /// Build the debug-label text for a creature: current action name, then one line each
+    /// for hunger, fatigue, and boredom — each a 10-segment bar + percentage.
     /// </summary>
     private static string DebugLabelText(Blob blob)
     {
@@ -443,11 +385,21 @@ public partial class VivariumMain : Node3D
         if (string.IsNullOrEmpty(action)) action = "—";
 
         float hunger = blob.Needs.Hunger;
-        int filled = Math.Clamp((int)MathF.Round(hunger * 10f), 0, 10);
-        string bar = new string('█', filled) + new string('░', 10 - filled);
-        int pct = (int)MathF.Round(hunger * 100f);
+        int hFilled = Math.Clamp((int)MathF.Round(hunger * 10f), 0, 10);
+        string hBar = new string('█', hFilled) + new string('░', 10 - hFilled);
+        int hPct = (int)MathF.Round(hunger * 100f);
 
-        return $"{action,-10}  {bar}  {pct}%";
+        float fatigue = blob.Needs.Fatigue;
+        int fFilled = Math.Clamp((int)MathF.Round(fatigue * 10f), 0, 10);
+        string fBar = new string('█', fFilled) + new string('░', 10 - fFilled);
+        int fPct = (int)MathF.Round(fatigue * 100f);
+
+        float boredom = blob.Needs.Boredom;
+        int bFilled = Math.Clamp((int)MathF.Round(boredom * 10f), 0, 10);
+        string bBar = new string('█', bFilled) + new string('░', 10 - bFilled);
+        int bPct = (int)MathF.Round(boredom * 100f);
+
+        return $"{action,-10}\n  eat  {hBar} {hPct,3}%\n  rest {fBar} {fPct,3}%\n  play {bBar} {bPct,3}%";
     }
 
 }

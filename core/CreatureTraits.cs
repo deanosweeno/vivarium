@@ -53,6 +53,37 @@ public sealed class CreatureTraits
     public float MaxFlyHeight { get; set; } = float.MaxValue;
 
     /// <summary>
+    /// Which biomes this creature prefers (by Id string, resolved via BiomeCatalog).
+    /// Empty list or null = no biome preference. Data-driven: set in creatures.json.
+    /// </summary>
+    public IReadOnlyList<string> PreferredBiomes { get; set; } = [];
+
+    /// <summary>
+    /// Fatigue gained per second while moving (scaled by speed fraction).
+    /// Default matches the old global BehaviorConfig value.
+    /// </summary>
+    public float FatigueGainPerSec { get; set; } = 0.06f;
+
+    /// <summary>
+    /// Fatigue recovered per second while resting (nearly stopped).
+    /// Default matches the old global BehaviorConfig value.
+    /// </summary>
+    public float FatigueRecoverPerSec { get; set; } = 0.4f;
+
+    /// <summary>
+    /// Restricted diet for this creature type. null = no restriction (eats anything).
+    /// When set, the creature will only eat foods whose Id matches one of these strings.
+    /// </summary>
+    public IReadOnlySet<string>? Diet { get; set; }
+
+    /// <summary>
+    /// Minimum hunger level before the creature will passively graze while in the Wander
+    /// action. Below this threshold, a wandering creature walks past food without eating.
+    /// Default 0.3 — start nibbling at 30% hunger.
+    /// </summary>
+    public float GrazeHungerThreshold { get; set; } = 0.3f;
+
+    /// <summary>
     /// Convenience accessor for a new traits instance with all defaults.
     /// </summary>
     public static CreatureTraits Default => new();
@@ -71,6 +102,11 @@ public sealed class CreatureTraits
         GravityScale = other.GravityScale;
         CanFly = other.CanFly;
         MaxFlyHeight = other.MaxFlyHeight;
+        PreferredBiomes = other.PreferredBiomes;
+        FatigueGainPerSec = other.FatigueGainPerSec;
+        FatigueRecoverPerSec = other.FatigueRecoverPerSec;
+        Diet = other.Diet;
+        GrazeHungerThreshold = other.GrazeHungerThreshold;
     }
 
     public CreatureTraits() { }

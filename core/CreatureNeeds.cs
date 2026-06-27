@@ -37,4 +37,13 @@ public sealed class CreatureNeeds
         Fatigue = Math.Clamp(Fatigue, 0f, 1f);
         Boredom = Math.Clamp(Boredom, 0f, 1f);
     }
+
+    /// <summary>Randomize all three needs to 0–1 using the given RNG, so
+    /// spawned creatures start out of phase. Deterministic for seeded RNGs.</summary>
+    public void Randomize(Random rng)
+    {
+        Hunger = (float)rng.NextDouble();
+        Fatigue = (float)rng.NextDouble();
+        Boredom = (float)rng.NextDouble();
+    }
 }

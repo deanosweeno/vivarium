@@ -13,8 +13,11 @@ public sealed class BehaviorConfig
     /// <summary>Seconds between action re-selections. Steering is recomputed every tick regardless.</summary>
     public float DecisionInterval { get; init; } = 0.5f;
 
-    /// <summary>A challenger must beat the current action's score by this margin to take over.</summary>
-    public float SwitchMargin { get; init; } = 0.15f;
+    /// <summary>A challenger must beat the current action's score by this margin to take over.
+    /// Kept narrow enough that a zero-boredom Wander can retake control from a zero-boredom
+    /// Frolic even when flockless (so play never traps a creature permanently). The CommitmentBonus
+    /// still provides anti-dithering stickiness after a switch.</summary>
+    public float SwitchMargin { get; init; } = 0.06f;
 
     /// <summary>Score bonus added to the committed action (before decay/progress scaling).</summary>
     public float CommitmentBonus { get; init; } = 0.25f;
@@ -36,6 +39,16 @@ public sealed class BehaviorConfig
 
     /// <summary>How far a creature senses neighbors / samples terrain, in arena units.</summary>
     public float SenseRadius { get; init; } = 5f;
+
+    /// <summary>How far a creature can sense food, in arena units. Larger than SenseRadius
+    /// so foraging always targets the nearest food instead of falling through to aimless wander.</summary>
+    public float FoodSenseRadius { get; init; } = 20f;
+
+    /// <summary>How strongly (0-1) a creature is pushed toward its preferred biome when
+    /// outside one. 0 = no push, 1 = full-speed push (overpowers steering). 0.3 is a
+    /// gentle nudge — the creature still follows its brain-chosen action but curves toward
+    /// preferred terrain.</summary>
+    public float BiomeGradientWeight { get; init; } = 0.3f;
 
     /// <summary>
     /// Minimum <see cref="Genetics.Similarity"/> for another creature to count as herd-mate, so a
@@ -111,20 +124,24 @@ public sealed class BehaviorConfig
 
     // --- need dynamics (per second) ---
 
-    /// <summary>Fatigue gained per second while moving (scaled by speed fraction).</summary>
-    public float FatigueGainPerSec { get; init; } = 0.06f;
-
-    /// <summary>Fatigue recovered per second while resting.</summary>
-    public float FatigueRecoverPerSec { get; init; } = 0.25f;
-
     /// <summary>Hunger gained per second (seated; satisfied by foraging once food exists).</summary>
     public float HungerGainPerSec { get; init; } = 0.003f;
 
-    /// <summary>Boredom gained per second while idle/resting (seated; relieved by play later).</summary>
-    public float BoredomGainPerSec { get; init; } = 0.03f;
+    /// <summary>Boredom gained per second while idle/resting. Halved from 0.03 to space
+    /// out play bursts so Frolic reads as an occasional lively moment, not a constant state.</summary>
+    public float BoredomGainPerSec { get; init; } = 0.015f;
 
-    /// <summary>Boredom relieved per second while actively moving.</summary>
-    public float BoredomRelievePerSec { get; init; } = 0.05f;
+    /// <summary>Boredom relieved per second while frolicking.</summary>
+    public float BoredomRelievePerSec { get; init; } = 0.4f;
+
+    // --- frolic (boredom play behavior) ---
+
+    /// <summary>Minimum seconds a frolicking creature holds a darty direction before re-rolling.
+    /// Much shorter than WanderDwell so play reads as an energetic zig-zag, not a stroll.</summary>
+    public float FrolicDwellMin { get; init; } = 0.4f;
+
+    /// <summary>Maximum seconds a frolicking creature holds a darty direction before re-rolling.</summary>
+    public float FrolicDwellMax { get; init; } = 0.9f;
 
     // --- action table ---
 
@@ -139,22 +156,22 @@ public sealed class BehaviorConfig
     [
         // Wander — driven by Boredom (cubed, like Rest's fatigue), so it stays quiet while a
         // creature is engaged but rises sharply once it's been idle too long, eventually
-        // out-scoring a parked Approach/Flock equilibrium and rousing it to roam. Moving relieves
-        // Boredom (BoredomRelievePerSec), which drops the score again, so the creature takes a
-        // short "stretch the legs" stroll and resettles — this is what keeps creatures from
-        // freezing forever in a stable zero-velocity steering equilibrium. A curiosity floor
+        // out-scoring a parked Approach/Flock equilibrium and rousing it to roam. A curiosity floor
         // tints the cadence by personality without gating it (every creature roams when bored).
+        // Boredom builds during Wander (only Frolic relieves it), so a wander eventually
+        // transitions to Frolic once boredom peaks.
         new BehaviorAction
         {
             Name = "Wander",
             Steering = SteeringKind.Wander,
+            Grazing = GrazingMode.WhenHungry,
             BaseWeight = 0.9f,
             Considerations =
             [
                 // Offset is the always-on roaming floor (keeps Wander the default fallback when
                 // nothing else fires); boredom³ lifts it until it can rouse a parked equilibrium.
                 new Consideration { Input = InputKind.Boredom,
-                    Curve = new ResponseCurve { Type = CurveType.Power, Exponent = 3f, Offset = 0.13f } },
+                    Curve = new ResponseCurve { Type = CurveType.Power, Exponent = 3f, Offset = 0.15f } },
                 new Consideration { Input = InputKind.Constant, Drive = DriveKind.Curiosity,
                     Curve = new ResponseCurve { Type = CurveType.Linear, Slope = 0.4f, Offset = 0.6f } },
             ],
@@ -200,7 +217,7 @@ public sealed class BehaviorConfig
             Considerations =
             [
                 new Consideration { Input = InputKind.Fatigue,
-                    Curve = new ResponseCurve { Type = CurveType.Power, Exponent = 3f } },
+                    Curve = new ResponseCurve { Type = CurveType.Power, Exponent = 8f } },
             ],
         },
 
@@ -212,6 +229,7 @@ public sealed class BehaviorConfig
         {
             Name = "Forage",
             Steering = SteeringKind.Forage,
+            Grazing = GrazingMode.Always,
             BaseWeight = 0.9f,
             Considerations =
             [
@@ -231,6 +249,7 @@ public sealed class BehaviorConfig
         {
             Name = "Flock",
             Steering = SteeringKind.Flock,
+            Grazing = GrazingMode.WhenHungry,
             BaseWeight = 0.7f,
             Considerations =
             [
@@ -251,6 +270,22 @@ public sealed class BehaviorConfig
             [
                 new Consideration { Input = InputKind.SeparationTime, Drive = DriveKind.Sociability,
                     Curve = new ResponseCurve { Type = CurveType.Logistic, Midpoint = 0.5f, Steepness = 10f } },
+            ],
+        },
+
+        // Frolic — the only action that relieves Boredom. A Power(x¹⁰) curve stays near
+        // zero until Boredom is very near 1.0, then spikes sharply — Frolic fires only when
+        // genuinely bored stiff. Once frolicking, BoredomRelievePerSec drains Boredom to 0
+        // and a latch holds until empty, so play finishes completely.
+        new BehaviorAction
+        {
+            Name = "Frolic",
+            Steering = SteeringKind.Frolic,
+            BaseWeight = 1f,
+            Considerations =
+            [
+                new Consideration { Input = InputKind.Boredom,
+                    Curve = new ResponseCurve { Type = CurveType.Power, Exponent = 10f } },
             ],
         },
     ];

@@ -31,6 +31,10 @@ public partial class CreatureVisual : Node3D
     private float _facingYaw;   // smoothed body heading (radians)
     private float _animTime;    // accumulated time for oscillators
     private float _bodyBase = 1f;
+    private float _frolic;      // eased 0→1 "is frolicking" blend, for the pronk hop tell
+
+    private const float RockFreq = 3f;      // side-to-side rocks per second
+    private const float RockAngle = 0.26f;  // peak roll angle in radians (~15°)
 
     public void Init(Creature model)
     {
@@ -116,11 +120,21 @@ public partial class CreatureVisual : Node3D
 
         SyncFromModel();
 
+        // --- Frolic side-to-side body rock: ease the tell in/out, then roll the body
+        // around its forward axis (X rotation) on a sinusoidal sway. ---
+        float frolicTarget = _model.IsFrolicking ? 1f : 0f;
+        _frolic = Mathf.Lerp(_frolic, frolicTarget, 1f - Mathf.Exp(-6f * dt));
+        float rockRoll = 0f;
+        if (_frolic > 0.001f)
+            rockRoll = Mathf.Sin(_animTime * Mathf.Pi * 2f * RockFreq) * RockAngle * _frolic;
+
         // --- Movement factor: how fast the creature is travelling vs its top speed ---
         var vel = _model.Velocity;
         float speed = Mathf.Sqrt(vel.X * vel.X + vel.Z * vel.Z);
         float maxSpeed = Mathf.Max(0.01f, _model.Traits.MaxSpeed);
         float moveFactor = Mathf.Clamp(speed / maxSpeed, 0f, 1f);
+        // Frolic exaggerates the limb/tail swing so play reads as lively even at the same speed.
+        float limbGain = 1f + _frolic * 0.8f;
 
         // --- Face heading: smoothly turn the whole body toward where it's moving ---
         float t = 1f - Mathf.Exp(-10f * dt);
@@ -129,7 +143,7 @@ public partial class CreatureVisual : Node3D
             float targetYaw = Mathf.Atan2(vel.X, vel.Z);
             _facingYaw = LerpAngle(_facingYaw, targetYaw, t);
         }
-        Rotation = new Vector3(0f, _facingYaw, 0f);
+        Rotation = new Vector3(rockRoll, _facingYaw, 0f);
 
         // --- Head look-at: yaw the head toward the focus target, relative to the body ---
         float headYaw = 0f;
@@ -160,7 +174,7 @@ public partial class CreatureVisual : Node3D
                 case AnimRole.Limb:
                 {
                     // Fore/aft swing for a walk cycle; amplitude scales with travel speed.
-                    float swing = Mathf.Sin(_animTime * p.Freq + p.Phase) * 0.5f * moveFactor;
+                    float swing = Mathf.Sin(_animTime * p.Freq + p.Phase) * 0.5f * moveFactor * limbGain;
                     p.Node.Rotation = new Vector3(swing, 0f, 0f);
                     break;
                 }

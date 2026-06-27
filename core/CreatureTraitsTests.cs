@@ -17,6 +17,10 @@ public class CreatureTraitsTests
         Assert.Equal(1.0f, traits.GravityScale);
         Assert.False(traits.CanFly);
         Assert.Equal(float.MaxValue, traits.MaxFlyHeight);
+        Assert.Equal(0.06f, traits.FatigueGainPerSec);
+        Assert.Equal(0.4f, traits.FatigueRecoverPerSec);
+        Assert.Null(traits.Diet);
+        Assert.Equal(0.3f, traits.GrazeHungerThreshold);
     }
 
     [Fact]
@@ -43,6 +47,8 @@ public class CreatureTraitsTests
         traits.GravityScale = 0.5f;
         traits.CanFly = true;
         traits.MaxFlyHeight = 10f;
+        traits.FatigueGainPerSec = 0.03f;
+        traits.FatigueRecoverPerSec = 1.2f;
 
         Assert.Equal(1.5f, traits.MaxSpeed);
         Assert.Equal(3.0f, traits.JumpHeight);
@@ -52,6 +58,8 @@ public class CreatureTraitsTests
         Assert.Equal(0.5f, traits.GravityScale);
         Assert.True(traits.CanFly);
         Assert.Equal(10f, traits.MaxFlyHeight);
+        Assert.Equal(0.03f, traits.FatigueGainPerSec);
+        Assert.Equal(1.2f, traits.FatigueRecoverPerSec);
     }
 
     [Fact]
@@ -66,7 +74,11 @@ public class CreatureTraitsTests
             Radius = 0.75f,
             GravityScale = 2.0f,
             CanFly = true,
-            MaxFlyHeight = 20f
+            MaxFlyHeight = 20f,
+            FatigueGainPerSec = 0.05f,
+            FatigueRecoverPerSec = 0.9f,
+            Diet = new HashSet<string> { "berries", "acorns" },
+            GrazeHungerThreshold = 0.7f,
         };
 
         var copy = new CreatureTraits(original);
@@ -79,6 +91,10 @@ public class CreatureTraitsTests
         Assert.Equal(original.GravityScale, copy.GravityScale);
         Assert.Equal(original.CanFly, copy.CanFly);
         Assert.Equal(original.MaxFlyHeight, copy.MaxFlyHeight);
+        Assert.Equal(original.FatigueGainPerSec, copy.FatigueGainPerSec);
+        Assert.Equal(original.FatigueRecoverPerSec, copy.FatigueRecoverPerSec);
+        Assert.Equal(original.Diet, copy.Diet);
+        Assert.Equal(original.GrazeHungerThreshold, copy.GrazeHungerThreshold);
     }
 
     [Fact]

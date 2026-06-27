@@ -238,6 +238,21 @@ public sealed class Simulator : IFlockEnv
                 var senses = BuildSenses(entity);
                 entity.Brain.Tick(delta, entity, senses, Rng);
                 entity.FocusPosition = ResolveFocus(entity.Brain.Current?.Steering, senses);
+
+                // Biome gradient: when outside a preferred biome, push gently toward the nearest
+                // preferred cell. Applied AFTER the brain so biome preference is physics, not
+                // decision-making. The brain decides the action; the sim biases its path.
+                if (senses.BiomeComfort < 1f && senses.BiomePush.LengthSquared() > 1e-6f)
+                {
+                    var desired = entity.DesiredVelocity;
+                    float maxSpeed = entity.Traits.MaxSpeed;
+                    var bias = senses.BiomePush * maxSpeed * Behavior.BiomeGradientWeight;
+                    var blended = desired + bias;
+                    float blendedLen = blended.Length();
+                    if (blendedLen > maxSpeed && blendedLen > 1e-6f)
+                        blended *= maxSpeed / blendedLen;
+                    entity.DesiredVelocity = blended;
+                }
             }
 
             // 2. Movement tick (steer toward DesiredVelocity + wall bounce)
@@ -339,7 +354,7 @@ public sealed class Simulator : IFlockEnv
     /// a copy of its current needs. Reads positions only — no randomness — so decisions
     /// stay deterministic.
     /// </summary>
-    private SenseContext BuildSenses(Creature self)
+    internal SenseContext BuildSenses(Creature self)
     {
         float radius = Behavior.SenseRadius;
 
@@ -376,10 +391,65 @@ public sealed class Simulator : IFlockEnv
         Vector3 flockAnchor = hasFlock ? flock!.Anchor : self.Position;
         float flockRadius = hasFlock ? flock!.Radius : 0f;
 
-        // Nearest available food this creature can eat (horizontal distance).
+        // Nearest available food this creature can eat (horizontal distance). Always populated
+        // so Forage can path to food even when it's outside immediate sense range.
         var (foodItem, foodDist) = NearestFood(self.Position, self.Diet);
-        bool hasFood = foodItem is not null && foodDist <= radius;
-        float foodProximity = hasFood ? 1f - foodDist / radius : 0f;
+        float foodSenseRadius = Behavior.FoodSenseRadius;
+        bool hasFood = foodItem is not null && foodDist <= foodSenseRadius;
+        float foodProximity = hasFood ? 1f - foodDist / foodSenseRadius : 0f;
+
+        // --- biome awareness ---
+        Biome currentBiome = Biome.Plains;
+        float biomeComfort = 1f;
+        Vector3 biomePush = Vector3.Zero;
+        if (Map is not null && Biomes is not null && self.Traits.PreferredBiomes.Count > 0)
+        {
+            currentBiome = Map.BiomeAt(self.Position);
+            var preferred = self.Traits.PreferredBiomes;
+            biomeComfort = preferred.Contains(currentBiome.ToString()) ? 1f : 0f;
+
+            // If outside a preferred biome, compute a push toward the nearest preferred cell.
+            // Scans a coarse grid (every 2 cells) for speed; a full per-cell scan is O(map²).
+            if (biomeComfort < 1f)
+            {
+                float bestDist = float.MaxValue;
+                int bestCx = 0, bestCz = 0;
+                var (sx, sz) = Map.WorldToCell(self.Position);
+                // Search radius in cells — cap at map bounds
+                int searchCells = 12;
+                int minCx = Math.Max(0, sx - searchCells);
+                int maxCx = Math.Min(Map.Width - 1, sx + searchCells);
+                int minCz = Math.Max(0, sz - searchCells);
+                int maxCz = Math.Min(Map.Depth - 1, sz + searchCells);
+                for (int cx = minCx; cx <= maxCx; cx += 2)
+                {
+                    for (int cz = minCz; cz <= maxCz; cz += 2)
+                    {
+                        if (!preferred.Contains(Map.GetBiome(cx, cz).ToString())) continue;
+                        float wx = (cx - Map.Width / 2f + 0.5f) * Map.CellSize;
+                        float wz = (cz - Map.Depth / 2f + 0.5f) * Map.CellSize;
+                        float dx = wx - self.Position.X;
+                        float dz = wz - self.Position.Z;
+                        float d2 = dx * dx + dz * dz;
+                        if (d2 < bestDist)
+                        {
+                            bestDist = d2;
+                            bestCx = cx;
+                            bestCz = cz;
+                        }
+                    }
+                }
+                if (bestDist < float.MaxValue)
+                {
+                    float wx = (bestCx - Map.Width / 2f + 0.5f) * Map.CellSize;
+                    float wz = (bestCz - Map.Depth / 2f + 0.5f) * Map.CellSize;
+                    var toTarget = new Vector3(wx - self.Position.X, 0f, wz - self.Position.Z);
+                    float len = toTarget.Length();
+                    if (len > 1e-6f)
+                        biomePush = toTarget / len;
+                }
+            }
+        }
 
         // Normalized separation time for SeekFlock consideration.
         float separationTime = MathF.Min(1f, self.SeparationTimer / Behavior.SeekFlockDelay);
@@ -416,6 +486,7 @@ public sealed class Simulator : IFlockEnv
             FlockRadius = flockRadius,
             HasFood = hasFood,
             FoodPosition = foodItem?.Position ?? self.Position,
+            FoodDistance = foodDist,
             FoodProximity = foodProximity,
             SeparationTime = separationTime,
             HasNearbyFlock = hasNearbyFlock,
@@ -423,6 +494,9 @@ public sealed class Simulator : IFlockEnv
             Hunger = self.Needs.Hunger,
             Fatigue = self.Needs.Fatigue,
             Boredom = self.Needs.Boredom,
+            CurrentBiome = currentBiome,
+            BiomeComfort = biomeComfort,
+            BiomePush = biomePush,
         };
     }
 
@@ -613,10 +687,10 @@ public sealed class Simulator : IFlockEnv
     }
 
     /// <summary>
-    /// Each foraging creature grazes the nearest available food within eat range, draining the
-    /// item and lowering the creature's Hunger by the nutrition consumed this tick. Only
-    /// creatures whose current action steers toward <see cref="SteeringKind.Forage"/> eat, so a
-    /// creature fleeing across food doesn't snack mid-panic.
+    /// Each creature grazes the nearest available food within eat range, draining the
+    /// item and lowering the creature's Hunger by the nutrition consumed this tick.
+    /// Grazing eligibility is declared by the current action's <see cref="GrazingMode"/>
+    /// — the Simulator doesn't care which specific <see cref="SteeringKind"/> it is.
     /// </summary>
     private void ResolveGrazing(double delta)
     {
@@ -625,7 +699,14 @@ public sealed class Simulator : IFlockEnv
 
         foreach (var entity in Entities)
         {
-            if (entity.Brain?.Current?.Steering != SteeringKind.Forage) continue;
+            var action = entity.Brain?.Current;
+            bool canGraze = action?.Grazing switch
+            {
+                GrazingMode.Always => true,
+                GrazingMode.WhenHungry => entity.Needs.Hunger >= entity.Traits.GrazeHungerThreshold,
+                _ => false
+            };
+            if (!canGraze) continue;
 
             var (item, dist) = NearestFood(entity.Position, entity.Diet);
             if (item is null) continue;
@@ -651,16 +732,19 @@ public sealed class Simulator : IFlockEnv
         float speed = MathF.Sqrt(entity.Velocity.X * entity.Velocity.X + entity.Velocity.Z * entity.Velocity.Z);
         float speedFrac = Math.Clamp(speed / maxSpeed, 0f, 1f);
 
+        // Fatigue: recovers only when nearly stopped, accrues with travel speed.
         if (speedFrac < 0.1f)
-        {
-            n.Fatigue -= Behavior.FatigueRecoverPerSec * dt;
-            n.Boredom += Behavior.BoredomGainPerSec * dt;
-        }
+            n.Fatigue -= entity.Traits.FatigueRecoverPerSec * dt;
         else
-        {
-            n.Fatigue += Behavior.FatigueGainPerSec * speedFrac * dt;
+            n.Fatigue += entity.Traits.FatigueGainPerSec * speedFrac * dt;
+
+        // Boredom: relieved only by Frolic (play). Every other action — including
+        // active Wander, Flock jostling, Forage — builds it. This makes boredom a
+        // genuine "need for play" meter, not a speedometer.
+        if (entity.IsFrolicking)
             n.Boredom -= Behavior.BoredomRelievePerSec * dt;
-        }
+        else
+            n.Boredom += Behavior.BoredomGainPerSec * dt;
         n.Hunger += Behavior.HungerGainPerSec * dt;
         n.Clamp();
     }

@@ -30,6 +30,7 @@ public sealed class BlobFactory : ICreatureFactory
         {
             Movement = movement ?? new SteeringLocomotion(),
             Brain = new UtilityBrain(_behavior),
+            Diet = traits.Diet is { } d ? new HashSet<string>(d) : null,
         };
         return blob;
     }

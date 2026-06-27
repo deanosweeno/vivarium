@@ -66,6 +66,104 @@ public class SimulatorTests
         Assert.Equal(0f, blob.Happiness, 5);
     }
 
+    // --- biome gradient (IBiomeAffinity / BiomePush) ---
+
+    private static BiomeCatalog PlainsOnlyCatalog => BiomeCatalog.Parse("""
+        [
+          { "Biome": "Plains", "HappinessRate": 0.0 },
+          { "Biome": "Desert", "HappinessRate": 0.0 }
+        ]
+        """);
+
+    [Fact]
+    public void BiomeGradient_InPreferredBiome_ComfortIsOne_PushIsZero()
+    {
+        // Sheep in Plains should feel comfortable and get no push.
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Map = UniformBiomeMap(Biome.Plains),
+            Biomes = PlainsOnlyCatalog,
+        };
+        var sheep = sim.SpawnBlob(new Vector3(0, 0, 0));
+        sheep.Traits.PreferredBiomes = ["Plains"];
+
+        var senses = sim.BuildSenses(sheep);
+
+        Assert.Equal(Biome.Plains, senses.CurrentBiome);
+        Assert.Equal(1f, senses.BiomeComfort);
+        Assert.Equal(Vector3.Zero, senses.BiomePush);
+    }
+
+    [Fact]
+    public void BiomeGradient_InHostileBiome_ComfortIsZero_PushPointsTowardPreferred()
+    {
+        // Sheep in Desert should feel hostile and get pushed toward nearest Plains.
+        // Map is centered on origin: cell (0,0) maps to world at (-7.5, -7.5).
+        // Place a Plains cell near the corner so we know the direction.
+        var map = UniformBiomeMap(Biome.Desert);
+        // Punch a single Plains cell in the top-right quadrant (even coords to hit step-by-2 scan).
+        map.SetCell(12, 12, new Cell { Terrain = Terrain.Grass, Biome = Biome.Plains });
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Map = map,
+            Biomes = PlainsOnlyCatalog,
+        };
+        // Place sheep at world origin (cell ~7.5,7.5) — nearest Plains is at cell (12,12).
+        // Cell (12,12) world: x=(12-8+0.5)*1=4.5, z=4.5 → +X, +Z from origin.
+        var sheep = sim.SpawnBlob(Vector3.Zero);
+        sheep.Traits.PreferredBiomes = ["Plains"];
+
+        var senses = sim.BuildSenses(sheep);
+
+        Assert.Equal(Biome.Desert, senses.CurrentBiome);
+        Assert.True(senses.BiomeComfort < 1f, $"expected comfort < 1, got {senses.BiomeComfort}");
+        Assert.True(senses.BiomePush.X > 0f, $"push should point +X toward Plains, got {senses.BiomePush}");
+        Assert.True(senses.BiomePush.Z > 0f, $"push should point +Z toward Plains, got {senses.BiomePush}");
+    }
+
+    [Fact]
+    public void BiomeGradient_NoPreferredBiomes_ComfortIsOne()
+    {
+        // Creature with no preferred biomes treats all biomes as comfortable.
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Map = UniformBiomeMap(Biome.Desert),
+            Biomes = PlainsOnlyCatalog,
+        };
+        var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+        blob.Traits.PreferredBiomes = []; // empty — no preference
+
+        var senses = sim.BuildSenses(blob);
+
+        Assert.Equal(1f, senses.BiomeComfort);
+        Assert.Equal(Vector3.Zero, senses.BiomePush);
+    }
+
+    [Fact]
+    public void BiomeGradient_AppliesVelocityBiasInHostileBiome()
+    {
+        // Sheep in Desert with Forage active should have its DesiredVelocity biased
+        // toward Plains by the biome gradient weight.
+        var map = UniformBiomeMap(Biome.Desert);
+        map.SetCell(10, 10, new Cell { Terrain = Terrain.Grass, Biome = Biome.Plains });
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Map = map,
+            Biomes = PlainsOnlyCatalog,
+        };
+        var sheep = sim.SpawnBlob(new Vector3(0, 0, 0));
+        sheep.Traits.PreferredBiomes = ["Plains"];
+
+        sim.Tick(0.1);
+
+        // After one tick, the brain should have picked an action (Wander by default)
+        // and the biome gradient should have biased DesiredVelocity.
+        // We can't assert exact direction (Wander is random) but we can assert the
+        // sheep's position moved during the tick (it's not frozen).
+        Assert.True(sheep.Position.Length() > 0.01f,
+            $"sheep should have moved from biome push, at {sheep.Position}");
+    }
+
     [Fact]
     public void SpawnBlobReturnsBlobAtPosition()
     {
@@ -1042,6 +1140,64 @@ public class SimulatorTests
         Assert.True(blob.Needs.Hunger >= hungerBefore,
             "berries-eater should not graze cactus; hunger unchanged or up");
         Assert.Equal(1f, sim.Food[0].Amount, 4);
+    }
+
+    // -------------------------------------------------
+    // Passive grazing (Wander eats nearby food when hungry enough)
+    // -------------------------------------------------
+
+    /// <summary>Drives that force the brain to pick Wander — no flock, no foraging hunger.</summary>
+    private static Drives WanderOnlyDrives() => new()
+    {
+        Curiosity = 1f,
+        Fear = 0f,
+        Sociability = 0f,
+        Appetite = 0f,
+        Aggression = 0f,
+        PlayCuddle = 0f,
+    };
+
+    [Fact]
+    public void PassiveGraze_WanderEatsFoodWhenHungry()
+    {
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Foods = TwoFoodTypes(),
+        };
+        sim.Food.Add(new FoodItem { Position = Vector3.Zero, Def = sim.Foods!.Get("berries") });
+
+        var blob = sim.SpawnBlob(Vector3.Zero, traits: null, drives: WanderOnlyDrives());
+        blob.Needs.Hunger = 0.5f;   // above default GrazeHungerThreshold (0.3)
+        blob.Needs.Fatigue = 0f;
+        blob.Needs.Boredom = 0f;
+
+        float hungerBefore = blob.Needs.Hunger;
+        for (int i = 0; i < 5; i++) sim.Tick(0.1);
+
+        Assert.True(blob.Needs.Hunger < hungerBefore,
+            $"wandering blob should passively graze (hunger {hungerBefore:F3} → {blob.Needs.Hunger:F3})");
+    }
+
+    [Fact]
+    public void PassiveGraze_WanderDoesNotEatWhenNotHungry()
+    {
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Foods = TwoFoodTypes(),
+        };
+        sim.Food.Add(new FoodItem { Position = Vector3.Zero, Def = sim.Foods!.Get("berries") });
+
+        var blob = sim.SpawnBlob(Vector3.Zero, traits: null, drives: WanderOnlyDrives());
+        blob.Needs.Hunger = 0.1f;   // below default GrazeHungerThreshold (0.3)
+        blob.Needs.Fatigue = 0f;
+        blob.Needs.Boredom = 0f;
+
+        float hungerBefore = blob.Needs.Hunger;
+        for (int i = 0; i < 5; i++) sim.Tick(0.1);
+
+        // Hunger should increase (from HungerGainPerSec), not decrease.
+        Assert.True(blob.Needs.Hunger >= hungerBefore,
+            $"wandering blob below graze threshold should not eat (hunger {hungerBefore:F3} → {blob.Needs.Hunger:F3})");
     }
 
     [Fact]

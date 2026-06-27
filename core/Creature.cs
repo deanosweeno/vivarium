@@ -85,6 +85,10 @@ public class Creature
     /// </summary>
     public UtilityBrain? Brain { get; set; }
 
+    /// <summary>True when the brain's active action is Frolic — the boredom-play behavior. Read by
+    /// the visual layer to add the hoppy "pronk" tell. Cosmetic only; sim logic never reads it.</summary>
+    public bool IsFrolicking => Brain?.Current?.Steering == SteeringKind.Frolic;
+
     /// <summary>
     /// Raw seconds since this creature last belonged to any flock. Reset to 0 each tick it has
     /// one, accumulated otherwise. Normalized to [0,1] as SenseContext.SeparationTime for the
