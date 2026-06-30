@@ -13,9 +13,13 @@ public sealed class FeedInteraction : IPlayerInteraction
 
     public void Apply(in InteractionContext ctx)
     {
-        var n = ctx.Target!.Needs;
+        var target = ctx.Target!;
+        var n = target.Needs;
         n.Hunger -= ctx.Config.FeedHungerRelief;
+        // Food is universally welcome — no flavor axis, so it always lands at full bond and reads
+        // as a full-strength happy reaction.
         n.Affection += ctx.Config.FeedBond;
+        target.LastReaction = CreatureReaction.Happy(1f, target.LastReaction);
         ctx.Input.CarriedFood = null;   // the item is eaten — empty the hand
     }
 }

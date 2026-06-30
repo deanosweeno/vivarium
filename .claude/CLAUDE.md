@@ -137,6 +137,10 @@ core/
   UtilityBrain.cs     — AI: utility-based action selection (scored considerations)
   BehaviorConfig.cs   — All Utility-AI tunables + action table (data-over-code home)
   IFleeStrategy.cs    — Composable per-creature flee-from-player policy (SheepFleeStrategy)
+  NeedBroadcast.cs    — Pure fn: which player-lane need a creature shows as a thought-bubble
+                        (Affection always; Hunger/Boredom only when not self-satisfying)
+  player/CreatureReaction.cs — Reaction tell seam (Happy + flavor-match Strength), mirrors PlayerState
+  player/interactions/FlavorMatch.cs — PlayCuddle→bond multiplier (floored: bonus, never punishment)
   SenseContext.cs     — What a creature can perceive (nearby entities, terrain)
   BiomeCatalog.cs     — Biome definitions loaded from assets/biomes.json
   FoodCatalog.cs      — Food definitions loaded from assets/foods.json

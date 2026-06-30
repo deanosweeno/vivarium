@@ -105,6 +105,20 @@ public class Creature
     public bool IsFrolicking => Brain?.Current?.Steering == SteeringKind.Frolic;
 
     /// <summary>
+    /// The single player-lane need this creature is currently asking the player to fill — the
+    /// value behind its thought-bubble. Set each tick by the Simulator via
+    /// <see cref="NeedBroadcast.Resolve"/>; read by the visual layer. Cosmetic/UX only.
+    /// </summary>
+    public BroadcastNeed Broadcast { get; internal set; }
+
+    /// <summary>
+    /// How this creature reacted to the most recent player interaction (a happy bounce sized by
+    /// flavor-match). Set by the interaction verbs, read + decayed by the visual layer. The
+    /// feedback channel that teaches the player a creature's temperament. Cosmetic only.
+    /// </summary>
+    public CreatureReaction LastReaction { get; internal set; } = CreatureReaction.None;
+
+    /// <summary>
     /// Raw seconds since this creature last belonged to any flock. Reset to 0 each tick it has
     /// one, accumulated otherwise. Normalized to [0,1] as SenseContext.SeparationTime for the
     /// brain's SeekFlock consideration.

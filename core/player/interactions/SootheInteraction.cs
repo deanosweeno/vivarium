@@ -3,6 +3,8 @@ namespace Vivarium.Core;
 /// <summary>
 /// Soothe (calm pet) the nearest creature: lets it rest (relieves fatigue) and deepens the bond.
 /// Gated behind <see cref="BehaviorConfig.PartialBondThreshold"/> — a wild creature won't be handled.
+/// Calm flavor — bond gain scales with the <i>inverse</i> of <see cref="Drives.PlayCuddle"/> (low =
+/// loves cuddling), the opposite axis to <see cref="PlayInteraction"/>. Mismatch still helps (floored).
 /// </summary>
 public sealed class SootheInteraction : IPlayerInteraction
 {
@@ -13,8 +15,12 @@ public sealed class SootheInteraction : IPlayerInteraction
 
     public void Apply(in InteractionContext ctx)
     {
-        var n = ctx.Target!.Needs;
+        var target = ctx.Target!;
+        var n = target.Needs;
         n.Fatigue -= ctx.Config.SootheFatigueRelief;
-        n.Affection += ctx.Config.SootheBond;
+        // Calm flavor: match = 1 - PlayCuddle (1 = loves cuddling).
+        float match = 1f - target.Drives.PlayCuddle;
+        n.Affection += ctx.Config.SootheBond * FlavorMatch.Multiplier(match, ctx.Config);
+        target.LastReaction = CreatureReaction.Happy(match, target.LastReaction);
     }
 }

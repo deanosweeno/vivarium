@@ -114,8 +114,8 @@ public sealed class BehaviorConfig
     public float FlockRadiusPerMember { get; init; } = 0.6f;
 
     /// <summary>Minimum number of nearby kin required to seed a new flock.  Below this threshold
-    /// unflocked kin remain solitary.  Default 3 (sheep herd-of-three rule).</summary>
-    public int FlockMinSize { get; init; } = 3;
+    /// unflocked kin remain solitary.  Default 2 (pair of sheep).</summary>
+    public int FlockMinSize { get; init; } = 2;
 
 
 
@@ -199,6 +199,23 @@ public sealed class BehaviorConfig
 
     /// <summary>Affection gained per play.</summary>
     public float PlayBond { get; init; } = 0.15f;
+
+    /// <summary>
+    /// Floor on the personality flavor-match multiplier applied to bond gain. A perfectly matched
+    /// interaction (a lively creature played with, a cuddly one soothed) gains the full bond; a
+    /// mismatched one still gains <c>FlavorMismatchFloor ×</c> the bond — never zero, never negative.
+    /// Cozy by design: reading temperament is a bonus, not a wrong-answer trap. 1.0 disables the
+    /// personality effect entirely.
+    /// </summary>
+    public float FlavorMismatchFloor { get; init; } = 0.4f;
+
+    // --- need broadcast (thought-bubble) ---
+
+    /// <summary>Hunger above which the creature broadcasts a feed-me bubble (when not foraging).</summary>
+    public float BroadcastHungerThreshold { get; init; } = 0.5f;
+
+    /// <summary>Boredom above which the creature broadcasts a play-with-me bubble (when not frolicking).</summary>
+    public float BroadcastBoredomThreshold { get; init; } = 0.5f;
 
     // --- action table ---
 

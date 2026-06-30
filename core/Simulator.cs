@@ -287,7 +287,14 @@ public sealed class Simulator : IFlockEnv
 
             // 2c. Advance dynamic needs based on how the creature actually moved
             if (entity.Brain is not null)
+            {
                 UpdateNeeds(entity, delta);
+
+                // 2d. Resolve the player-lane need bubble. Suppress hunger/boredom when the
+                // creature is already self-satisfying them (foraging / frolicking).
+                bool foraging = entity.Brain.Current?.Steering == SteeringKind.Forage;
+                entity.Broadcast = NeedBroadcast.Resolve(entity.Needs, foraging, entity.IsFrolicking, Behavior);
+            }
 
             // 3. Ground placement — rest the entity on the terrain surface under it.
             float floor = GroundFloor(entity.Position) + entity.Traits.Radius;

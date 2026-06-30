@@ -33,8 +33,15 @@ public partial class CreatureVisual : Node3D
     private float _bodyBase = 1f;
     private float _frolic;      // eased 0→1 "is frolicking" blend, for the pronk hop tell
 
+    private Label3D? _bubble;   // thought-bubble above the head (need broadcast)
+    private float _bubbleY;     // local Y where the bubble floats
+    private int _reactionStamp; // last consumed reaction stamp, to detect a fresh tell
+    private float _reactionT;   // remaining reaction-bounce time (seconds)
+    private float _reactionStrength;
+
     private const float RockFreq = 3f;      // side-to-side rocks per second
     private const float RockAngle = 0.26f;  // peak roll angle in radians (~15°)
+    private const float ReactionDuration = 0.5f; // how long a happy bounce plays
 
     public void Init(Creature model)
     {
@@ -78,10 +85,43 @@ public partial class CreatureVisual : Node3D
                 Phase = part.Phase,
                 Freq = part.Freq,
             });
+
+            // Track the tallest point so the bubble floats clear of the body.
+            float top = rest.Y + part.Size.Y * 0.5f;
+            if (top > _bubbleY) _bubbleY = top;
         }
 
+        BuildBubble();
         SyncFromModel();
     }
+
+    /// <summary>Create the thought-bubble label that floats above the head. Hidden until the model
+    /// broadcasts a player-lane need. Placeholder glyphs (text) until icon art lands.</summary>
+    private void BuildBubble()
+    {
+        _bubble = new Label3D
+        {
+            Position = new Vector3(0f, _bubbleY + 0.4f, 0f),
+            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+            FontSize = 64,
+            PixelSize = 0.006f,
+            Modulate = Colors.White,
+            OutlineSize = 12,
+            OutlineModulate = new Color(0f, 0f, 0f, 0.6f),
+            NoDepthTest = true,
+            Visible = false,
+        };
+        AddChild(_bubble);
+    }
+
+    /// <summary>Glyph + tint for a broadcast need. Words stand in for icon art (deferred).</summary>
+    private static (string Text, Color Tint) BubbleFor(BroadcastNeed need) => need switch
+    {
+        BroadcastNeed.Hunger    => ("food", new Color(1f, 0.55f, 0.4f)),
+        BroadcastNeed.Boredom   => ("play", new Color(0.5f, 0.8f, 1f)),
+        BroadcastNeed.Affection => ("♥", new Color(1f, 0.85f, 0.3f)),
+        _ => ("", Colors.White),
+    };
 
     private static Mesh BuildMesh(BodyPart part)
     {
@@ -199,6 +239,54 @@ public partial class CreatureVisual : Node3D
                 }
             }
         }
+
+        UpdateBubble(dt);
+        UpdateReaction(dt);
+    }
+
+    /// <summary>Show/hide the thought-bubble from the model's current broadcast, with a gentle
+    /// floating bob so it reads as a soft "cozy" tell rather than a hard UI element.</summary>
+    private void UpdateBubble(float dt)
+    {
+        if (_bubble == null) return;
+        var need = _model.Broadcast;
+        if (need == BroadcastNeed.None)
+        {
+            _bubble.Visible = false;
+            return;
+        }
+        var (text, tint) = BubbleFor(need);
+        _bubble.Text = text;
+        _bubble.Modulate = tint;
+        _bubble.Visible = true;
+        float bob = Mathf.Sin(_animTime * 2f) * 0.05f;
+        _bubble.Position = new Vector3(0f, _bubbleY + 0.4f + bob, 0f);
+    }
+
+    /// <summary>Play a brief happy bounce when the model reports a fresh reaction. The pop scales
+    /// with the interaction's flavor-match strength, so a well-matched verb reads bigger — the
+    /// channel that teaches the player a creature's temperament. Decays on its own.</summary>
+    private void UpdateReaction(float dt)
+    {
+        var r = _model.LastReaction;
+        if (r.Kind == ReactionKind.Happy && r.Stamp != _reactionStamp)
+        {
+            _reactionStamp = r.Stamp;
+            _reactionT = ReactionDuration;
+            // Even a mismatched pick gives a small nod; a perfect match gives a full pop.
+            _reactionStrength = 0.3f + 0.7f * r.Strength;
+        }
+
+        if (_reactionT <= 0f) return;
+        _reactionT = Mathf.Max(0f, _reactionT - dt);
+
+        // Half-sine envelope over the duration: rise then settle.
+        float u = _reactionT / ReactionDuration;          // 1 → 0
+        float env = Mathf.Sin(u * Mathf.Pi);              // 0 → 1 → 0
+        float pop = env * 0.25f * _reactionStrength;
+        Scale = new Vector3(1f + pop, 1f + pop * 1.4f, 1f + pop);
+        // A little hop on top of the position the sync already set.
+        Position += new Vector3(0f, env * 0.18f * _reactionStrength, 0f);
     }
 
     private static float LerpAngle(float from, float to, float t)
