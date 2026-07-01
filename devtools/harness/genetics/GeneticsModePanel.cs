@@ -9,9 +9,9 @@ namespace Vivarium.DevTools;
 /// Mode 4 — Genetics (§3 harvest / pool / craft / splice), run in isolation. Owns its own
 /// <see cref="GenePool"/> + <see cref="GeneticsConfig"/> and calls the pure core functions directly
 /// (<see cref="HarvestTable.Roll"/> / <see cref="Craft.CraftBase"/> / <see cref="Splicer.Splice"/> /
-/// <see cref="Expressor.Express"/>). Splice produces a phenotype text readout only — wiring a spliced
-/// genome into a live sim creature is the still-open §8 spawn integration and is deliberately out of
-/// scope here (see the TODO below).
+/// <see cref="Expressor.Express"/>). Splice produces a phenotype text readout; "Spawn into sim"
+/// then drops that phenotype into the live sim as a real creature via
+/// <see cref="Simulator.SpawnFromPhenotype"/> (§8 spawn integration).
 /// </summary>
 public partial class GeneticsModePanel : VBoxContainer, IHarnessPanel
 {
@@ -25,6 +25,10 @@ public partial class GeneticsModePanel : VBoxContainer, IHarnessPanel
     private readonly GenePool _pool = new();
     private GeneticsConfig _cfg = GeneticsConfig.Default;
     private readonly Dictionary<string, Gene> _craftedBase = new();
+
+    // Last splice result — reused by "Spawn into sim". Null until a successful Splice.
+    private Genome? _lastGenome;
+    private Phenotype? _lastPheno;
 
     public void Build(HarnessSimHost host)
     {
@@ -42,6 +46,7 @@ public partial class GeneticsModePanel : VBoxContainer, IHarnessPanel
         row.AddChild(HarnessUi.Button("Harvest", Harvest));
         row.AddChild(HarnessUi.Button("Craft base", CraftBase));
         row.AddChild(HarnessUi.Button("Splice", Splice));
+        row.AddChild(HarnessUi.Button("Spawn into sim", SpawnIntoSim));
         AddChild(row);
 
         AddChild(HarnessUi.Slider("SpliceBudget", 1, 6, 1, _cfg.DefaultSpliceBudget,
@@ -119,6 +124,8 @@ public partial class GeneticsModePanel : VBoxContainer, IHarnessPanel
         var envelope = _host.Creatures.GetDef(sp)?.Body is { } body ? BodyEnvelope.From(body) : null;
         var genome = Splicer.Splice(baseGene, specialty, _cfg, envelope);
         var pheno = Expressor.Express(genome, _host.Sim.Rng);
+        _lastGenome = genome;
+        _lastPheno = pheno;
 
         _readout.Text =
             $"spliced '{sp}' base + {specialty.Count} specialty:\n"
@@ -127,9 +134,35 @@ public partial class GeneticsModePanel : VBoxContainer, IHarnessPanel
             + $"  maxSpeed: {pheno.Traits.MaxSpeed:0.###}\n"
             + $"  radius  : {pheno.Traits.Radius:0.###}\n"
             + $"  social  : {pheno.Drives.Sociability:0.###}\n"
-            + $"  specialty: {string.Join(", ", specialty.Select(g => g.Id))}";
-        // TODO §8: a "Spawn this genome into the live sim" button hooks in here once the
-        // genotype→live-creature spawn path lands (see docs/features/splicing.md §8).
+            + $"  specialty: {string.Join(", ", specialty.Select(g => g.Id))}\n"
+            + "Spawn into sim to see it live.";
+    }
+
+    private void SpawnIntoSim()
+    {
+        if (_lastPheno is not { } pheno)
+        {
+            _readout.Text = "no spliced phenotype yet — Splice first.";
+            return;
+        }
+
+        var pos = SpawnPosition();
+        var creature = _host.Sim.SpawnFromPhenotype(pos, pheno, _lastGenome);
+        _readout.Text = $"spawned '{pheno.Body.Name}' at "
+            + $"({creature.Position.X:0.#}, {creature.Position.Z:0.#}) — now live in the sim.";
+    }
+
+    /// <summary>Prefer next to the player; else a Plains biome center; else the arena center.</summary>
+    private System.Numerics.Vector3 SpawnPosition()
+    {
+        if (_host.Sim.Player is { } player)
+            return player.Position + new System.Numerics.Vector3(1.5f, 0f, 0f);
+        if (_host.Sim.Map is { } map
+            && HerdSpawner.PickBiomeCenter(map, Biome.Plains, _host.Sim.Rng) is { } center)
+            return center;
+        var arena = _host.Sim.Arena;
+        return new System.Numerics.Vector3(
+            (arena.MinX + arena.MaxX) * 0.5f, 0f, (arena.MinZ + arena.MaxZ) * 0.5f);
     }
 
     private void RefreshCollected()

@@ -16,6 +16,7 @@ public static class PlayerInteractions
         new FeedInteraction(),
         new SootheInteraction(),
         new PlayInteraction(),
+        new HarvestInteraction(),
         // TODO: migrate magnitudes to assets/interactions.json.
     };
 }

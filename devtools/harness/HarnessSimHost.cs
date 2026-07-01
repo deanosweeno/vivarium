@@ -109,6 +109,7 @@ public partial class HarnessSimHost : Node3D
             Map = map,
             Biomes = _mapView.Biomes,
             Foods = LoadFoods(FoodsPath),
+            Genes = Genes,
         };
         Sim.SeedFood();
 

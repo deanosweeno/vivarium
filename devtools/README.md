@@ -27,6 +27,7 @@ creature (world center when nothing is selected).
 | **Player** | Spawn the avatar, warp it to the selection, Feed/Soothe/Play through the real intent path, tune `InteractionConfig`. |
 | **Map / Terrain** | Regenerate terrain from a seed + `MapGenConfig` sliders (rebuilds the mesh), tally terrain/biome cells. |
 | **Genetics** | Harvest → pool → craft base → splice (`§3`), phenotype readout. Runs isolated: splicing does **not** spawn into the live sim (that's the open `§8` integration — see `docs/features/splicing.md`). |
+| **Play** | Actually play it: WASD-controlled avatar (camera-relative, camera follows the player), verb keys **F** pickup · **G** place · **1** feed · **2** soothe · **3** play · **H** harvest, **Tab** pulls up the splice overlay. Harvest deposits real gene drops into the player's `GenePool`; the overlay crafts/splices against that same pool, pauses the sim while open, and can spawn the spliced hybrid live next to the player. Save/Load persist the pool to `user://genepool.json`. |
 
 ## Keeping it out of the shipped game
 

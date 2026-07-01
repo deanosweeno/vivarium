@@ -22,10 +22,55 @@ public static class Genetics
     // Six drives, each in [0,1] ⇒ max Euclidean distance is sqrt(6).
     private static readonly float MaxDriveDistance = MathF.Sqrt(6f);
 
-    /// <summary>Blended Body + Drives similarity of two creatures, in [0,1].</summary>
+    // Genome path: shared base species dominates so a spliced hybrid coheres with its parent
+    // herd; specialty overlap refines within a species.
+    private const float BaseWeight = 0.7f;
+    private const float SpecialtyWeight = 0.3f;
+
+    /// <summary>Blended similarity of two creatures, in [0,1].</summary>
+    /// <remarks>
+    /// When both creatures carry a <see cref="Genome"/> (i.e. they were spliced/expressed, §8),
+    /// similarity reads lineage directly — shared base species + specialty-gene overlap — so an
+    /// engineered hybrid groups with its kin. Otherwise it falls back to the structural
+    /// Body + Drives blend used by stock creatures.
+    /// </remarks>
     public static float Similarity(Creature a, Creature b)
-        => BodyWeight * BodySimilarity(a.Body, b.Body)
-         + DrivesWeight * DrivesSimilarity(a.Drives, b.Drives);
+    {
+        if (a.Genome is { } ga && b.Genome is { } gb)
+            return GenomeSimilarity(ga, gb);
+
+        return BodyWeight * BodySimilarity(a.Body, b.Body)
+             + DrivesWeight * DrivesSimilarity(a.Drives, b.Drives);
+    }
+
+    /// <summary>
+    /// Lineage similarity of two genomes in [0,1]: shared base gene (same species) weighted
+    /// heavily, plus Jaccard overlap of their specialty-gene ids. Deterministic, no RNG.
+    /// </summary>
+    public static float GenomeSimilarity(Genome a, Genome b)
+    {
+        float baseSim = a.Base.Id == b.Base.Id ? 1f : 0f;
+        float specialtySim = SpecialtyOverlap(a.Specialty, b.Specialty);
+        return BaseWeight * baseSim + SpecialtyWeight * specialtySim;
+    }
+
+    /// <summary>Jaccard overlap (|A∩B| / |A∪B|) of two specialty-gene id sets. Both empty → 1.</summary>
+    private static float SpecialtyOverlap(IReadOnlyList<Gene> a, IReadOnlyList<Gene> b)
+    {
+        if (a.Count == 0 && b.Count == 0) return 1f;
+
+        var idsA = new HashSet<string>();
+        foreach (var g in a) idsA.Add(g.Id);
+        var idsB = new HashSet<string>();
+        foreach (var g in b) idsB.Add(g.Id);
+
+        int intersection = 0;
+        foreach (var id in idsA)
+            if (idsB.Contains(id)) intersection++;
+
+        int union = idsA.Count + idsB.Count - intersection;
+        return union == 0 ? 1f : (float)intersection / union;
+    }
 
     /// <summary>
     /// Body-lineage similarity in [0,1]. Same plan (reference-equal or matching <see cref="BodyPlan.Id"/>)

@@ -32,9 +32,13 @@ public partial class DevHarnessRoot : Node3D
     public override void _Process(double delta)
     {
         // Camera eases to follow the selected creature; otherwise frames world center. User keeps
-        // full yaw/pitch/zoom control (Q/E, middle-drag, wheel) on top via CameraOrbit.
-        SNVector3? sel = _host.Selected?.Position;
-        _camera.Target = sel is { } p ? new Vector3(p.X, p.Y, p.Z) : Vector3.Zero;
+        // full yaw/pitch/zoom control (Q/E, middle-drag, wheel) on top via CameraOrbit. Play mode
+        // owns the camera target itself (follows the avatar), so skip the selection-follow there.
+        if (_panels.Length == 0 || _panels[_active] is not PlayModePanel)
+        {
+            SNVector3? sel = _host.Selected?.Position;
+            _camera.Target = sel is { } p ? new Vector3(p.X, p.Y, p.Z) : Vector3.Zero;
+        }
 
         if (_panels.Length > 0)
             _panels[_active].Refresh(delta);
@@ -83,6 +87,7 @@ public partial class DevHarnessRoot : Node3D
             new PlayerModePanel(),
             new MapModePanel(),
             new GeneticsModePanel(),
+            new PlayModePanel(),
         };
 
         var layer = new CanvasLayer { Name = "HarnessUi" };

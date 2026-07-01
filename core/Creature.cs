@@ -74,6 +74,14 @@ public class Creature
     public BodyPlan? Body { get; set; }
 
     /// <summary>
+    /// The genome this creature was spliced/expressed from, or null for stock (non-engineered)
+    /// creatures. Retained so <see cref="Genetics.Similarity"/> can read lineage directly (§8) —
+    /// a spliced hybrid coheres with its parent herd by shared base species + specialty overlap,
+    /// not just by structural body/drives resemblance. Sim logic does not otherwise depend on it.
+    /// </summary>
+    public Genome? Genome { get; set; }
+
+    /// <summary>
     /// Restricts which food types this creature can sense and eat. Null (or empty) = eat
     /// any food (the original behavior). When non-empty, the Simulator's sensing and grazing
     /// skip food items whose <see cref="FoodDef.Id"/> is not in this set.

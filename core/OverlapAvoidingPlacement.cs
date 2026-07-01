@@ -28,6 +28,7 @@ public sealed class OverlapAvoidingPlacement : IPlacementStrategy
     {
         float radius = traits.Radius;
         float minDist = radius * 2f;
+        float originalY = desired.Y;
 
         for (int attempt = 0; attempt < _maxAttempts; attempt++)
         {
@@ -36,10 +37,11 @@ public sealed class OverlapAvoidingPlacement : IPlacementStrategy
                 return pos;
 
             // Try a random position within the arena as the next desired position.
+            // Keep the original Y (terrain height) so creatures don't spawn underground/underwater.
             // The inner strategy (e.g. BiomeFiltered) will re-validate it.
             desired = new Vector3(
                 (float)(ctx.Rng.NextDouble() * (ctx.Arena.MaxX - ctx.Arena.MinX - radius * 2) + ctx.Arena.MinX + radius),
-                0f,
+                originalY,
                 (float)(ctx.Rng.NextDouble() * (ctx.Arena.MaxZ - ctx.Arena.MinZ - radius * 2) + ctx.Arena.MinZ + radius));
         }
 

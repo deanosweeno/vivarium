@@ -20,9 +20,15 @@ Built piece-by-piece in `core/genetics/`. ✅ done · 🚧 partial · ⬜ not st
   `GenePool` (collect/de-dupe by id, `HasFullSet`/`Missing` craft gate, JSON save/load),
   `Craft.CraftBase` (gated on the full Common set, still def-derived — see its `// TODO §3`),
   `Splicer.Splice` (named seam over `Genome.Create`), `GeneticsConfig` (drop odds, min/max
-  drops, splice budget — all data, not scattered constants). Pure `core/`, no live-creature wiring.
+  drops, splice budget — all data, not scattered constants). Pure `core/`; the harness Genetics
+  panel now spawns a spliced phenotype into the live sim (see §8).
 - ⬜ **§4–6** collision resolution · ⬜ **§7** splice budget as player progression ·
-  ⬜ **§8** `Genetics.Similarity` rewire + spawn integration.
+  🚧 **§8** spawn integration — `Simulator.SpawnFromPhenotype(pos, Phenotype, Genome?)` drops an
+  expressed genome into the live sim as a real `Blob` (auto-rendered by `CreatureVisual`), retained
+  on `Creature.Genome`; `Genetics.Similarity` reads `Genome` when both creatures have one (shared
+  base species + specialty overlap), else falls back to Body+Drives. Exposed via the devtools
+  Genetics panel "Spawn into sim" button. **Pending:** player-facing (non-devtools) UI and
+  `assets/creatures.json` gene metadata.
 
 How the player **harvests genes** from animals and **splices** them into hybrids. A genome is
 a composition-first flat list of genes; an `Expressor` turns a genome into the existing
@@ -305,6 +311,25 @@ Everything in `core/` is seeded and pure → unit-testable without Godot:
 - Stat conflicts: single pin overrides; multi-pin rarity-weighted pick is seeded.
 - Genome invariant: exactly one base; splice budget enforced.
 - `Genetics.Similarity` continues to satisfy existing herd-threshold tests.
+
+---
+
+## 9.5 Interactive harness — Play mode
+
+The loop is playable end-to-end in the dev harness (`devtools/harness/play/`), not just via
+buttons: a WASD-controlled avatar with a real `harvest` verb and a pull-up splice UI.
+
+- **`harvest` verb** (`core/player/interactions/HarvestInteraction.cs`) — a real
+  `IPlayerInteraction`, same shape as `feed`/`soothe`/`play`. Targets the nearest creature in
+  reach; species is read from the target's `Body.Id` (falls back to `Genome.Base.SourceSpecies`
+  for already-spliced hybrids), then rolls `HarvestTable.Roll` and deposits drops into the
+  player's `PlayerInputMode.Pool`. Non-lethal — sets a mild `Startled` tell, not a bond hit;
+  sampling isn't play.
+- **`PlayModePanel`** — camera-relative WASD (mirrors `VivariumMain.UpdatePlayerInput`), verb
+  keys (F/G/1/2/3/H), **Tab** pulls up the splice overlay.
+- **`SpliceOverlay`** — craft/splice UI reading/writing the *player's* `GenePool` (not a
+  mode-local one). Pauses the sim while open, restores on close. Save/Load persist the pool to
+  `user://genepool.json`.
 
 ---
 

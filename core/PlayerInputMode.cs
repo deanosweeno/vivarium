@@ -46,6 +46,13 @@ public sealed class PlayerInputMode : IPlayerMovement
     /// </summary>
     public bool HoldingFood => CarriedFood is not null;
 
+    /// <summary>
+    /// The player's collected genes, attributed to their source species — the genetics analogue of
+    /// <see cref="CarriedFood"/>. Filled by <see cref="HarvestInteraction"/>; read/persisted by the
+    /// splice UI.
+    /// </summary>
+    public GenePool Pool { get; set; } = new();
+
     /// <summary>Queue a verb intent by its <see cref="IPlayerInteraction.Id"/> (e.g. "feed"). The
     /// canonical input entry point — the IO layer calls this on keypress.</summary>
     public void QueueIntent(string id) => _pending.Add(id);

@@ -30,7 +30,7 @@ public sealed class PlayerController
     /// Resolve this frame's queued player intents against the nearest creature in reach. Edge-triggered:
     /// every queued intent is consumed whether or not its verb lands, so one keypress = one attempt.
     /// </summary>
-    public void Resolve(Creature player, IReadOnlyList<Creature> entities, IReadOnlyList<FoodItem> food, BehaviorConfig cfg, Random rng)
+    public void Resolve(Creature player, IReadOnlyList<Creature> entities, IReadOnlyList<FoodItem> food, BehaviorConfig cfg, Random rng, GeneCatalog? genes = null, GeneticsConfig? geneticsCfg = null)
     {
         if (player.Movement is not PlayerInputMode input) return;
 
@@ -45,6 +45,8 @@ public sealed class PlayerController
             Config = cfg,
             HoldingFood = input.HoldingFood,
             Rng = rng,
+            Genes = genes,
+            GeneticsCfg = geneticsCfg ?? GeneticsConfig.Default,
         };
 
         bool any = false;
