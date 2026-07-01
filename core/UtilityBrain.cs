@@ -61,8 +61,7 @@ public sealed class UtilityBrain
         // Unconditional flee override: when the strategy says this creature panics at
         // any cost, skip the entire scoring loop and immediately commit to AvoidPlayer.
         // Gated on !HasFlock so flock-level flee handles the group case separately.
-        if (_fleeStrategy.FleeOverridesAll
-            && senses.IsPlayerThreat && senses.HasPlayer && !senses.HasFlock)
+        if (_fleeStrategy.FleeOverridesAll && senses.PlayerPanic)
         {
             var fleeAction = _config.Actions
                 .FirstOrDefault(a => a.Steering == SteeringKind.AvoidPlayer);
@@ -120,8 +119,7 @@ public sealed class UtilityBrain
         // FleePlayer latch: flee until the player is no longer a threat or the creature
         // has rejoined a flock. The action's own Isolation gate already scores it 0 when
         // HasFlock, so the latch also releases naturally once a flock is joined.
-        else if (Current.Steering == SteeringKind.AvoidPlayer
-            && senses.IsPlayerThreat && senses.HasPlayer && !senses.HasFlock)
+        else if (Current.Steering == SteeringKind.AvoidPlayer && senses.PlayerPanic)
             hold = 1f;
 
         bool isEmergency = best.EmergencyCapable && bestScore >= best.EmergencyThreshold;
@@ -283,29 +281,29 @@ public sealed class UtilityBrain
     /// producing a darty zig-zag that reads as play. Owns its own timer/dir so it doesn't disturb
     /// the shared Wander state used by settled-herd drift.</summary>
     private Vector3 FrolicWander(double delta, float maxSpeed, Random rng)
-    {
-        _frolicTimer -= delta;
-        if (_frolicTimer <= 0 || _frolicDir.LengthSquared() < 1e-6f)
-        {
-            double angle = rng.NextDouble() * 2.0 * Math.PI;
-            _frolicDir = new Vector3((float)Math.Cos(angle), 0f, (float)Math.Sin(angle));
-            _frolicTimer = _config.FrolicDwellMin
-                + rng.NextDouble() * (_config.FrolicDwellMax - _config.FrolicDwellMin);
-        }
-        return _frolicDir * maxSpeed;
-    }
+        => Roam(ref _frolicDir, ref _frolicTimer, delta, maxSpeed, rng, _config.FrolicDwellMin, _config.FrolicDwellMax);
 
     /// <summary>Relaxed roaming: re-roll a random XZ direction periodically, move at full speed.</summary>
     private Vector3 Wander(double delta, float maxSpeed, Random rng)
+        => Roam(ref _wanderDir, ref _wanderTimer, delta, maxSpeed, rng, _config.WanderDwellMin, _config.WanderDwellMax);
+
+    /// <summary>
+    /// Shared roam primitive: holds a random XZ direction for a randomized dwell in
+    /// [dwellMin, dwellMax] seconds, re-rolling both when the dwell expires. Wander and
+    /// FrolicWander are the same pattern at different dwell timescales; each keeps its own
+    /// (dir, timer) pair so a wandering creature's stroll direction doesn't reset mid-frolic.
+    /// </summary>
+    private static Vector3 Roam(
+        ref Vector3 dir, ref double timer, double delta, float maxSpeed, Random rng,
+        float dwellMin, float dwellMax)
     {
-        _wanderTimer -= delta;
-        if (_wanderTimer <= 0 || _wanderDir.LengthSquared() < 1e-6f)
+        timer -= delta;
+        if (timer <= 0 || dir.LengthSquared() < 1e-6f)
         {
             double angle = rng.NextDouble() * 2.0 * Math.PI;
-            _wanderDir = new Vector3((float)Math.Cos(angle), 0f, (float)Math.Sin(angle));
-            _wanderTimer = _config.WanderDwellMin
-                + rng.NextDouble() * (_config.WanderDwellMax - _config.WanderDwellMin);
+            dir = new Vector3((float)Math.Cos(angle), 0f, (float)Math.Sin(angle));
+            timer = dwellMin + rng.NextDouble() * (dwellMax - dwellMin);
         }
-        return _wanderDir * maxSpeed;
+        return dir * maxSpeed;
     }
 }

@@ -1,15 +1,12 @@
 namespace Vivarium.Core;
 
 /// <summary>
-/// All tunable numbers and the action table for the Utility AI. Mirrors the role of
-/// <see cref="MapGenConfig"/> / <see cref="BiomeDef"/>: behavior is retuned by editing
-/// data here, never by changing the brain's logic. One shared instance is typically held
-/// by the <see cref="Simulator"/> and referenced by every creature's <see cref="UtilityBrain"/>.
+/// Decision-cadence, anti-dither, perception, and action-table tunables for the Utility AI.
+/// Grouped out of the former monolithic <see cref="BehaviorConfig"/> — see that class for the
+/// full split.
 /// </summary>
-public sealed class BehaviorConfig
+public sealed record BrainConfig
 {
-    // --- decision cadence & anti-dithering ---
-
     /// <summary>Seconds between action re-selections. Steering is recomputed every tick regardless.</summary>
     public float DecisionInterval { get; init; } = 0.5f;
 
@@ -77,6 +74,35 @@ public sealed class BehaviorConfig
     /// ease the final approach instead of braking abruptly.</summary>
     public float SteeringSlowRadiusRadii { get; init; } = 2f;
 
+    // --- wander dwell (how long before a creature re-rolls its wander direction) ---
+
+    /// <summary>Minimum seconds a wandering creature holds a direction before re-rolling.</summary>
+    public float WanderDwellMin { get; init; } = 3f;
+
+    /// <summary>Maximum seconds a wandering creature holds a direction before re-rolling.</summary>
+    public float WanderDwellMax { get; init; } = 7f;
+
+    // --- frolic (boredom play behavior) ---
+
+    /// <summary>Minimum seconds a frolicking creature holds a darty direction before re-rolling.
+    /// Much shorter than WanderDwell so play reads as an energetic zig-zag, not a stroll.</summary>
+    public float FrolicDwellMin { get; init; } = 0.4f;
+
+    /// <summary>Maximum seconds a frolicking creature holds a darty direction before re-rolling.</summary>
+    public float FrolicDwellMax { get; init; } = 0.9f;
+
+    // --- action table ---
+
+    /// <summary>The candidate actions scored each decision.</summary>
+    public IReadOnlyList<BehaviorAction> Actions { get; init; } = BehaviorConfig.DefaultActions();
+}
+
+/// <summary>
+/// Flock (group entity) + seek-flock tunables. Grouped out of the former monolithic
+/// <see cref="BehaviorConfig"/> — see that class for the full split.
+/// </summary>
+public sealed record FlockConfig
+{
     /// <summary>Fraction of a flock member's speed cap that its separation push may reach. Clamps
     /// separation so a dense pack can't out-shove cohesion and explode the herd.</summary>
     public float FlockSeparationCapFraction { get; init; } = 0.5f;
@@ -97,16 +123,6 @@ public sealed class BehaviorConfig
     /// Faster than the old 0.25 so the herd reads as one migrating mass.</summary>
     public float FlockPace { get; init; } = 0.4f;
 
-    // --- wander dwell (how long before a creature re-rolls its wander direction) ---
-
-    /// <summary>Minimum seconds a wandering creature holds a direction before re-rolling.</summary>
-    public float WanderDwellMin { get; init; } = 3f;
-
-    /// <summary>Maximum seconds a wandering creature holds a direction before re-rolling.</summary>
-    public float WanderDwellMax { get; init; } = 7f;
-
-    // --- flock (group entity) tunables ---
-
     /// <summary>Circle radius at one member; grows with √(member count) by FlockRadiusPerMember.</summary>
     public float FlockBaseRadius { get; init; } = 2.5f;
 
@@ -116,8 +132,6 @@ public sealed class BehaviorConfig
     /// <summary>Minimum number of nearby kin required to seed a new flock.  Below this threshold
     /// unflocked kin remain solitary.  Default 2 (pair of sheep).</summary>
     public int FlockMinSize { get; init; } = 2;
-
-
 
     /// <summary>Seconds between flock-brain (Wander vs Graze) re-decisions.</summary>
     public float FlockDecisionInterval { get; init; } = 2f;
@@ -146,9 +160,14 @@ public sealed class BehaviorConfig
     /// <summary>Seconds a creature must be separated from any flock before
     /// SeekFlock becomes available. Normalized 0→1 in SenseContext.</summary>
     public float SeekFlockDelay { get; init; } = 60f;
+}
 
-    // --- need dynamics (per second) ---
-
+/// <summary>
+/// Need-dynamics (per second) + broadcast-threshold tunables. Grouped out of the former
+/// monolithic <see cref="BehaviorConfig"/> — see that class for the full split.
+/// </summary>
+public sealed record NeedConfig
+{
     /// <summary>Hunger gained per second (seated; satisfied by foraging once food exists).</summary>
     public float HungerGainPerSec { get; init; } = 0.003f;
 
@@ -159,17 +178,24 @@ public sealed class BehaviorConfig
     /// <summary>Boredom relieved per second while frolicking.</summary>
     public float BoredomRelievePerSec { get; init; } = 0.4f;
 
-    // --- frolic (boredom play behavior) ---
+    /// <summary>Hunger above which the creature broadcasts a feed-me bubble (when not foraging).</summary>
+    public float BroadcastHungerThreshold { get; init; } = 0.5f;
 
-    /// <summary>Minimum seconds a frolicking creature holds a darty direction before re-rolling.
-    /// Much shorter than WanderDwell so play reads as an energetic zig-zag, not a stroll.</summary>
-    public float FrolicDwellMin { get; init; } = 0.4f;
+    /// <summary>Boredom above which the creature broadcasts a play-with-me bubble (when not frolicking).</summary>
+    public float BroadcastBoredomThreshold { get; init; } = 0.5f;
 
-    /// <summary>Maximum seconds a frolicking creature holds a darty direction before re-rolling.</summary>
-    public float FrolicDwellMax { get; init; } = 0.9f;
+    /// <summary>Fraction of max speed below which a moving creature counts as "nearly stopped" and
+    /// recovers Fatigue instead of accruing it. Extracted from a magic literal in the former
+    /// <c>Simulator.UpdateNeeds</c> (now <see cref="NeedSystem.Resolve"/>).</summary>
+    public float FatigueRecoverSpeedThreshold { get; init; } = 0.1f;
+}
 
-    // --- player interaction & taming ---
-
+/// <summary>
+/// Player interaction / taming bond tunables. Grouped out of the former monolithic
+/// <see cref="BehaviorConfig"/> — see that class for the full split.
+/// </summary>
+public sealed record InteractionConfig
+{
     /// <summary>Affection at/above which the pet verbs (Soothe/Play) become available — the
     /// creature has warmed up enough to be handled. Below it, pet attempts no-op.</summary>
     public float PartialBondThreshold { get; init; } = 0.4f;
@@ -208,19 +234,107 @@ public sealed class BehaviorConfig
     /// personality effect entirely.
     /// </summary>
     public float FlavorMismatchFloor { get; init; } = 0.4f;
+}
 
-    // --- need broadcast (thought-bubble) ---
+/// <summary>
+/// All tunable numbers and the action table for the Utility AI. Mirrors the role of
+/// <see cref="MapGenConfig"/> / <see cref="BiomeDef"/>: behavior is retuned by editing
+/// data here, never by changing the brain's logic. One shared instance is typically held
+/// by the <see cref="Simulator"/> and referenced by every creature's <see cref="UtilityBrain"/>.
+///
+/// A thin aggregate over four focused sub-configs (<see cref="BrainConfig"/>,
+/// <see cref="FlockConfig"/>, <see cref="NeedConfig"/>, <see cref="InteractionConfig"/>), grouped
+/// by concern instead of one flat 50-field bag. The original flat properties are kept as
+/// delegating pass-throughs so existing call sites (and tests) are unaffected; new code should
+/// prefer reading the sub-config directly (<c>Behavior.Brain.SenseRadius</c> etc.).
+/// </summary>
+public sealed class BehaviorConfig
+{
+    public BrainConfig Brain { get; set; } = new();
+    public FlockConfig Flock { get; set; } = new();
+    public NeedConfig Need { get; set; } = new();
+    public InteractionConfig Interaction { get; set; } = new();
 
-    /// <summary>Hunger above which the creature broadcasts a feed-me bubble (when not foraging).</summary>
-    public float BroadcastHungerThreshold { get; init; } = 0.5f;
+    // --- decision cadence & anti-dithering (delegates to Brain) ---
 
-    /// <summary>Boredom above which the creature broadcasts a play-with-me bubble (when not frolicking).</summary>
-    public float BroadcastBoredomThreshold { get; init; } = 0.5f;
+    public float DecisionInterval { get => Brain.DecisionInterval; init => Brain = Brain with { DecisionInterval = value }; }
+    public float SwitchMargin { get => Brain.SwitchMargin; init => Brain = Brain with { SwitchMargin = value }; }
+    public float CommitmentBonus { get => Brain.CommitmentBonus; init => Brain = Brain with { CommitmentBonus = value }; }
+    public float CommitmentDecayPerSec { get => Brain.CommitmentDecayPerSec; init => Brain = Brain with { CommitmentDecayPerSec = value }; }
+    public float DecisionNoise { get => Brain.DecisionNoise; init => Brain = Brain with { DecisionNoise = value }; }
+    public float SatiationThreshold { get => Brain.SatiationThreshold; init => Brain = Brain with { SatiationThreshold = value }; }
 
-    // --- action table ---
+    // --- perception (delegates to Brain) ---
+
+    public float SenseRadius { get => Brain.SenseRadius; init => Brain = Brain with { SenseRadius = value }; }
+    public float FoodSenseRadius { get => Brain.FoodSenseRadius; init => Brain = Brain with { FoodSenseRadius = value }; }
+    public float BiomeGradientWeight { get => Brain.BiomeGradientWeight; init => Brain = Brain with { BiomeGradientWeight = value }; }
+    public int BiomeSearchCells { get => Brain.BiomeSearchCells; init => Brain = Brain with { BiomeSearchCells = value }; }
+    public int BiomeSearchStep { get => Brain.BiomeSearchStep; init => Brain = Brain with { BiomeSearchStep = value }; }
+    public float HerdKinThreshold { get => Brain.HerdKinThreshold; init => Brain = Brain with { HerdKinThreshold = value }; }
+    public float PersonalSpaceRadii { get => Brain.PersonalSpaceRadii; init => Brain = Brain with { PersonalSpaceRadii = value }; }
+    public float SteeringSlowRadiusRadii { get => Brain.SteeringSlowRadiusRadii; init => Brain = Brain with { SteeringSlowRadiusRadii = value }; }
+
+    // --- flock separation/drift (delegates to Flock) ---
+
+    public float FlockSeparationCapFraction { get => Flock.FlockSeparationCapFraction; init => Flock = Flock with { FlockSeparationCapFraction = value }; }
+    public float FrolicDriftWeight { get => Flock.FrolicDriftWeight; init => Flock = Flock with { FrolicDriftWeight = value }; }
+    public float FlockWanderFloor { get => Flock.FlockWanderFloor; init => Flock = Flock with { FlockWanderFloor = value }; }
+    public float FlockPace { get => Flock.FlockPace; init => Flock = Flock with { FlockPace = value }; }
+
+    // --- wander dwell (delegates to Brain) ---
+
+    public float WanderDwellMin { get => Brain.WanderDwellMin; init => Brain = Brain with { WanderDwellMin = value }; }
+    public float WanderDwellMax { get => Brain.WanderDwellMax; init => Brain = Brain with { WanderDwellMax = value }; }
+
+    // --- flock (group entity) tunables (delegates to Flock) ---
+
+    public float FlockBaseRadius { get => Flock.FlockBaseRadius; init => Flock = Flock with { FlockBaseRadius = value }; }
+    public float FlockRadiusPerMember { get => Flock.FlockRadiusPerMember; init => Flock = Flock with { FlockRadiusPerMember = value }; }
+    public int FlockMinSize { get => Flock.FlockMinSize; init => Flock = Flock with { FlockMinSize = value }; }
+    public float FlockDecisionInterval { get => Flock.FlockDecisionInterval; init => Flock = Flock with { FlockDecisionInterval = value }; }
+    public float FlockWanderDwellMin { get => Flock.FlockWanderDwellMin; init => Flock = Flock with { FlockWanderDwellMin = value }; }
+    public float FlockWanderDwellMax { get => Flock.FlockWanderDwellMax; init => Flock = Flock with { FlockWanderDwellMax = value }; }
+    public float FlockGrazeHungerThreshold { get => Flock.FlockGrazeHungerThreshold; init => Flock = Flock with { FlockGrazeHungerThreshold = value }; }
+    public float FlockGrazeFoodRange { get => Flock.FlockGrazeFoodRange; init => Flock = Flock with { FlockGrazeFoodRange = value }; }
+    public float FlockJoinRadius { get => Flock.FlockJoinRadius; init => Flock = Flock with { FlockJoinRadius = value }; }
+    public float FlockLeaveRadius { get => Flock.FlockLeaveRadius; init => Flock = Flock with { FlockLeaveRadius = value }; }
+    public float FlockMergeRadius { get => Flock.FlockMergeRadius; init => Flock = Flock with { FlockMergeRadius = value }; }
+    public float SeekFlockDelay { get => Flock.SeekFlockDelay; init => Flock = Flock with { SeekFlockDelay = value }; }
+
+    // --- need dynamics (delegates to Need) ---
+
+    public float HungerGainPerSec { get => Need.HungerGainPerSec; init => Need = Need with { HungerGainPerSec = value }; }
+    public float BoredomGainPerSec { get => Need.BoredomGainPerSec; init => Need = Need with { BoredomGainPerSec = value }; }
+    public float BoredomRelievePerSec { get => Need.BoredomRelievePerSec; init => Need = Need with { BoredomRelievePerSec = value }; }
+
+    // --- frolic (delegates to Brain) ---
+
+    public float FrolicDwellMin { get => Brain.FrolicDwellMin; init => Brain = Brain with { FrolicDwellMin = value }; }
+    public float FrolicDwellMax { get => Brain.FrolicDwellMax; init => Brain = Brain with { FrolicDwellMax = value }; }
+
+    // --- player interaction & taming (delegates to Interaction) ---
+
+    public float PartialBondThreshold { get => Interaction.PartialBondThreshold; init => Interaction = Interaction with { PartialBondThreshold = value }; }
+    public float FullBondThreshold { get => Interaction.FullBondThreshold; init => Interaction = Interaction with { FullBondThreshold = value }; }
+    public float InteractReach { get => Interaction.InteractReach; init => Interaction = Interaction with { InteractReach = value }; }
+    public float FeedHungerRelief { get => Interaction.FeedHungerRelief; init => Interaction = Interaction with { FeedHungerRelief = value }; }
+    public float FeedBond { get => Interaction.FeedBond; init => Interaction = Interaction with { FeedBond = value }; }
+    public float SootheFatigueRelief { get => Interaction.SootheFatigueRelief; init => Interaction = Interaction with { SootheFatigueRelief = value }; }
+    public float SootheBond { get => Interaction.SootheBond; init => Interaction = Interaction with { SootheBond = value }; }
+    public float PlayBoredomRelief { get => Interaction.PlayBoredomRelief; init => Interaction = Interaction with { PlayBoredomRelief = value }; }
+    public float PlayBond { get => Interaction.PlayBond; init => Interaction = Interaction with { PlayBond = value }; }
+    public float FlavorMismatchFloor { get => Interaction.FlavorMismatchFloor; init => Interaction = Interaction with { FlavorMismatchFloor = value }; }
+
+    // --- need broadcast (delegates to Need) ---
+
+    public float BroadcastHungerThreshold { get => Need.BroadcastHungerThreshold; init => Need = Need with { BroadcastHungerThreshold = value }; }
+    public float BroadcastBoredomThreshold { get => Need.BroadcastBoredomThreshold; init => Need = Need with { BroadcastBoredomThreshold = value }; }
+
+    // --- action table (delegates to Brain) ---
 
     /// <summary>The candidate actions scored each decision.</summary>
-    public IReadOnlyList<BehaviorAction> Actions { get; init; } = DefaultActions();
+    public IReadOnlyList<BehaviorAction> Actions { get => Brain.Actions; init => Brain = Brain with { Actions = value }; }
 
     /// <summary>
     /// The v1 "full five" action table. Wander / Approach / Flee / Rest / Forage,

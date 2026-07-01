@@ -62,7 +62,7 @@ public sealed class Simulator : IFlockEnv
     /// Injected flee-from-player strategy — owns all flee tunables (speed, direction, threat
     /// detection). The Simulator passes this to creature brains and flock anchors so flee
     /// behavior is per-creature-type without coupling the brain to a specific creature.</summary>
-    public IFleeStrategy FleeStrategy { get; set; } = new SheepFleeStrategy(new BehaviorConfig().PartialBondThreshold);
+    public IFleeStrategy FleeStrategy { get; set; } = new SheepFleeStrategy(new InteractionConfig().PartialBondThreshold);
 
     /// <summary>
     /// Growable food items in the world. Creatures graze these to satisfy Hunger; depleted
@@ -288,7 +288,7 @@ public sealed class Simulator : IFlockEnv
             // 2c. Advance dynamic needs based on how the creature actually moved
             if (entity.Brain is not null)
             {
-                UpdateNeeds(entity, delta);
+                NeedSystem.Resolve(delta, entity, Behavior.Need);
 
                 // 2d. Resolve the player-lane need bubble. Suppress hunger/boredom when the
                 // creature is already self-satisfying them (foraging / frolicking).
@@ -297,22 +297,7 @@ public sealed class Simulator : IFlockEnv
             }
 
             // 3. Ground placement — rest the entity on the terrain surface under it.
-            float floor = GroundFloor(entity.Position) + entity.Traits.Radius;
-            if (entity.Traits.GravityScale == 0f)
-            {
-                // Terrain-bound (no gravity): hug the surface going up AND down.
-                if (entity.Position.Y != floor)
-                    entity.Position = new Vector3(
-                        entity.Position.X, floor, entity.Position.Z);
-            }
-            else if (entity.Position.Y < floor)
-            {
-                // Gravity-driven: stop the fall at the surface.
-                entity.Position = new Vector3(
-                    entity.Position.X, floor, entity.Position.Z);
-                entity.Velocity = new Vector3(
-                    entity.Velocity.X, 0f, entity.Velocity.Z);
-            }
+            SimPhysics.PlaceOnGround(entity, GroundFloor);
         }
 
         // --- Player animation state (Idle/Walking/Interacting) from the movement + verb seams ---
@@ -346,20 +331,11 @@ public sealed class Simulator : IFlockEnv
         ResolveGrazing(delta);
 
         // --- Entity collision ---
-        ResolveEntityCollisions();
+        SimPhysics.ResolveEntityCollisions(Entities);
 
         // --- Post-collision ground re-placement ---
         foreach (var entity in Entities)
-        {
-            float floor = GroundFloor(entity.Position) + entity.Traits.Radius;
-            if (entity.Traits.GravityScale == 0f)
-            {
-                if (entity.Position.Y != floor)
-                    entity.Position = new Vector3(entity.Position.X, floor, entity.Position.Z);
-            }
-            else if (entity.Position.Y < floor)
-                entity.Position = new Vector3(entity.Position.X, floor, entity.Position.Z);
-        }
+            SimPhysics.PlaceOnGround(entity, GroundFloor);
     }
 
     /// <summary>
@@ -473,36 +449,6 @@ public sealed class Simulator : IFlockEnv
         => GrazingSystem.Resolve(delta, Entities, Food.Count > 0, FoodSpawn, NearestFood);
 
     /// <summary>
-    /// Advance a creature's needs by one tick. Fatigue drains while moving and recovers at
-    /// rest; boredom is the inverse; hunger creeps up steadily (satisfied once food exists).
-    /// </summary>
-    private void UpdateNeeds(Creature entity, double delta)
-    {
-        float dt = (float)delta;
-        var n = entity.Needs;
-
-        float maxSpeed = MathF.Max(entity.Traits.MaxSpeed, 1e-3f);
-        float speed = MathF.Sqrt(entity.Velocity.X * entity.Velocity.X + entity.Velocity.Z * entity.Velocity.Z);
-        float speedFrac = Math.Clamp(speed / maxSpeed, 0f, 1f);
-
-        // Fatigue: recovers only when nearly stopped, accrues with travel speed.
-        if (speedFrac < 0.1f)
-            n.Fatigue -= entity.Traits.FatigueRecoverPerSec * dt;
-        else
-            n.Fatigue += entity.Traits.FatigueGainPerSec * speedFrac * dt;
-
-        // Boredom: relieved only by Frolic (play). Every other action — including
-        // active Wander, Flock jostling, Forage — builds it. This makes boredom a
-        // genuine "need for play" meter, not a speedometer.
-        if (entity.IsFrolicking)
-            n.Boredom -= Behavior.BoredomRelievePerSec * dt;
-        else
-            n.Boredom += Behavior.BoredomGainPerSec * dt;
-        n.Hunger += Behavior.HungerGainPerSec * dt;
-        n.Clamp();
-    }
-
-    /// <summary>
     /// Resolve the player's per-frame interaction intents against the nearest creature in reach.
     /// Edge-triggered: each intent flag is consumed (cleared) whether or not it lands, so one
     /// keypress = one interaction. Feeding needs food in hand and works on any creature (the trust
@@ -516,82 +462,4 @@ public sealed class Simulator : IFlockEnv
         _playerController.Resolve(Player, Entities, Food, Behavior, Rng);
     }
 
-    // -------------------------------------------------
-    // Collision resolution
-    // -------------------------------------------------
-
-    /// <summary>
-    /// Resolve sphere-sphere overlaps for all entity pairs.
-    /// Each pair is pushed apart by half the overlap distance.
-    /// </summary>
-    private void ResolveEntityCollisions()
-    {
-        for (int i = 0; i < Entities.Count; i++)
-        {
-            for (int j = i + 1; j < Entities.Count; j++)
-            {
-                var a = Entities[i];
-                var b = Entities[j];
-                float minDist = a.Traits.Radius + b.Traits.Radius;
-
-                // Horizontal overlap check before push, so we can also strip the inward velocity
-                // that drove them together — otherwise momentum re-rams them next tick (jitter).
-                var sep = new Vector3(a.Position.X - b.Position.X, 0f, a.Position.Z - b.Position.Z);
-                float horiz = sep.Length();
-                bool overlapping = horiz < minDist && horiz > 1e-6f;
-
-                (a.Position, b.Position) = PushApart(a.Position, b.Position, minDist);
-
-                if (overlapping)
-                {
-                    var axis = sep / horiz;                 // unit vector from b toward a, XZ plane
-                    KillInwardVelocity(a, axis);            // a moving toward b (-axis) → cancel it
-                    KillInwardVelocity(b, -axis);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Push two positions apart if they overlap, each by half the overlap.
-    /// If the distance is near-zero, nudges apart on a fixed axis.
-    /// </summary>
-    /// <summary>
-    /// Remove the component of a creature's horizontal velocity that points along
-    /// <paramref name="outwardAxis"/> negated — i.e. any speed driving it <em>into</em> the body it
-    /// just collided with. Leaves Y untouched (gravity) and any sideways/separating motion intact,
-    /// so a settled pair stops ramming instead of bouncing. Deterministic: velocities only, no RNG.
-    /// </summary>
-    private static void KillInwardVelocity(Creature c, Vector3 outwardAxis)
-    {
-        var v = c.Velocity;
-        var horiz = new Vector3(v.X, 0f, v.Z);
-        float inward = Vector3.Dot(horiz, outwardAxis);   // <0 means moving toward the other body
-        if (inward < 0f)
-        {
-            horiz -= outwardAxis * inward;                // cancel only the inward component
-            c.Velocity = new Vector3(horiz.X, v.Y, horiz.Z);
-        }
-    }
-
-    private static (Vector3 A, Vector3 B) PushApart(Vector3 a, Vector3 b, float minDist)
-    {
-        var delta = a - b;
-        float distance = delta.Length();
-
-        if (distance >= minDist)
-            return (a, b);
-
-        if (distance < 1e-6f)
-        {
-            delta = new Vector3(0.001f, 0f, 0f);
-            distance = delta.Length();
-        }
-
-        float overlap = minDist - distance;
-        var axis = delta / distance;
-        var push = axis * (overlap / 2f);
-
-        return (a + push, b - push);
-    }
 }
