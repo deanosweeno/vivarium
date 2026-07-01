@@ -94,6 +94,13 @@ public class Creature
     public Vector3 DesiredVelocity { get; internal set; }
 
     /// <summary>
+    /// Navigation state (cached A* path + repath timer). Non-null for every creature; only
+    /// populated while the active action is goal-seeking and a <see cref="MapData"/> is present.
+    /// Mutated by <see cref="NavSystem"/>; the movement layer reads the resulting DesiredVelocity.
+    /// </summary>
+    public NavState Nav { get; } = new();
+
+    /// <summary>
     /// Optional Utility-AI brain. When set, the Simulator builds a <see cref="SenseContext"/>
     /// and ticks it each frame to drive <see cref="DesiredVelocity"/>. Null = no brain
     /// (the creature relies purely on its movement mode, preserving older behavior).

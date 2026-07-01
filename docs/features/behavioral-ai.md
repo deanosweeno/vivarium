@@ -31,9 +31,49 @@ through a `ResponseCurve`, and scales by a `Drives` weight. Any near-zero consid
 kills the action — "don't flee when nothing's near" falls out of the math, not an
 if-statement.
 
+## Navigation: pathing is separate from deliberation
+
+The brain decides *what* and *where* (a target point); it does **not** know how to get there
+without hitting a rock. That's a separate axis — navigation — layered on after the decision,
+mirroring the existing "brain decides the action; the sim biases its path" biome-gradient seam.
+Full deliberative planners (GOAP/HTN) are deliberately out of scope: the felt problem was
+pathing, not decision quality, and the two are independent.
+
+Two mechanisms, both in `core/`, both deterministic (A* draws no RNG):
+
+- **Solid terrain (all creatures).** After a creature integrates its move, `Simulator.Tick`
+  calls `SimPhysics.ResolveTerrainCollision`, which uses the axis-separated
+  `SimPhysics.SlideAgainstTerrain` primitive: the X and Z moves are tested independently against
+  `MapData.IsWalkableWorld`, so motion parallel to a rock/lake face survives (the creature
+  *slides*) while motion into it is cancelled (and that velocity axis zeroed, so momentum
+  doesn't re-ram next tick). This alone fixes the old "bounce forever off a wall" behavior, and
+  it applies to *every* action, including reactive Wander/Flee.
+- **A\* pathfinding (goal-seeking actions).** For `Approach`/`Forage`/`SeekFlock`/`FollowPlayer`
+  (see `NavSystem.IsGoalSeeking`), `NavSystem.Steer` replaces the brain's straight-line
+  `DesiredVelocity` with steering along an A* path (`GridPathfinder`, octile heuristic,
+  no corner-cutting) across the walkable grid toward the creature's `FocusPosition`. The path is
+  cached in `Creature.Nav` (`NavState`) and repathed on a throttle (`NavConfig.RepathInterval`),
+  when the goal cell changes, or when the next waypoint becomes blocked. If no path exists
+  (goal walled off), it falls back to the straight vector — and solid terrain still prevents
+  pass-through.
+
+Reactive actions (Flee/AvoidPlayer/Wander/Frolic/Rest) stay purely local — they get no path,
+only the solid-terrain slide.
+
+### Flocks path as one
+
+A flock moves as a unit via `Flock.AdvanceAnchor`, so the **anchor** is the herd's nav agent,
+not each member. When the flock is grazing (`FlockAction.Graze`) the anchor follows an A* path
+to its patch (its own `Flock.Nav`), and on every tick the anchor slides against terrain so it
+can't drift onto a non-walkable cell and drag the whole circle into a lake. Members keep
+cohering to the anchor through their reactive `SteeringKind.Flock` steering — which is *not*
+goal-seeking, so members never run per-creature A* — and still get the solid-terrain slide
+individually as ordinary creatures in the per-entity pipeline. `NavConfig` lives on the
+`BehaviorConfig` aggregate as `Behavior.Nav`.
+
 ## Config: one aggregate, four concerns
 
-`BehaviorConfig` is a thin aggregate over four focused sub-configs, each owning one
+`BehaviorConfig` is a thin aggregate over five focused sub-configs, each owning one
 concern (split in the decoupling pass so a 50-field bag didn't keep growing):
 
 | Sub-config | Owns |
@@ -42,6 +82,7 @@ concern (split in the decoupling pass so a 50-field bag didn't keep growing):
 | `FlockConfig` | flock circle sizing, join/leave/merge radii, anchor pace, peer-alignment weight |
 | `NeedConfig` | need gain/relief rates, broadcast thresholds |
 | `InteractionConfig` | feed/soothe/play bonds, reach, flavor-mismatch floor, bond thresholds |
+| `NavConfig` | repath interval, A* expansion budget, waypoint arrival radius |
 
 The original flat properties (`Behavior.SenseRadius`, `Behavior.PartialBondThreshold`,
 …) still work — they delegate to the sub-config — so existing call sites and data
@@ -127,7 +168,10 @@ core/
   NeedSystem.cs             — need dynamics (pure)
   GrazingSystem.cs          — food consumption (pure)
   ReactionSystem.cs         — Startled/Curious/Content transitions (pure)
-  SimPhysics.cs             — ground placement + collision resolution
+  SimPhysics.cs             — ground placement + collision resolution + terrain slide
+  nav/GridPathfinder.cs     — deterministic A* over the walkable grid
+  nav/NavState.cs           — per-agent cached path + repath timer
+  nav/NavSystem.cs          — goal → obstacle-avoiding steering (creatures + flock anchors)
   IFleeStrategy.cs / FleeStrategyRegistry.cs / SheepFleeStrategy.cs
   ActionSetCatalog.cs
   body/CreatureDef.cs       — per-type FleeStrategy/ActionSet/Traits/Drives/Herd

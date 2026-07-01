@@ -29,6 +29,10 @@ public interface IFlockEnv
 
     /// <summary>Nearest available food (by horizontal distance) edible under <paramref name="diet"/>.</summary>
     (Vector3 Position, bool Has) NearestFood(Vector3 from, HashSet<string>? diet);
+
+    /// <summary>The terrain grid, or null when the sim runs without a map. Lets the anchor path
+    /// around obstacles and stay off non-walkable cells so it doesn't drag the herd into a lake.</summary>
+    MapData? Map { get; }
 }
 
 /// <summary>
@@ -52,6 +56,10 @@ public sealed class Flock
 
     /// <summary>The flock brain's current high-level action.</summary>
     public FlockAction Current { get; private set; }
+
+    /// <summary>Anchor navigation state — the herd's shared A* path when grazing toward a patch.
+    /// The flock is the herd's nav agent; members follow the anchor reactively (no per-member path).</summary>
+    public NavState Nav { get; } = new();
 
     private Vector3 _wanderDir;
     private double _wanderTimer;
@@ -126,6 +134,16 @@ public sealed class Flock
             {
                 // Ease the whole circle onto the patch; settle within a radius.
                 vel = Steering.Arrive(Anchor, _grazeTarget, cfg.FlockPace, Radius);
+
+                // Grazing is goal-seeking: route the anchor around obstacles via A* so the whole
+                // herd flows around a rock/lake between it and the patch. Falls back to the straight
+                // Arrive above when there's no path (or no map).
+                if (env.Map is { } navMap)
+                {
+                    var navVel = NavSystem.Steer(Anchor, _grazeTarget, Nav, navMap,
+                        cfg.Nav, (float)delta, cfg.FlockPace);
+                    if (navVel is { } v) vel = v;
+                }
             }
             else
             {
@@ -143,6 +161,8 @@ public sealed class Flock
 
         var next = Anchor + vel * (float)delta;
         next = arena.Clamp(next, Radius);            // keep the whole circle inside the arena
+        if (env.Map is { } terrain)                  // don't let the anchor drift onto rock/water
+            next = SimPhysics.SlideAgainstTerrain(Anchor, next, terrain);
         Anchor = new Vector3(next.X, env.GroundFloor(next), next.Z);
     }
 }

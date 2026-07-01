@@ -143,6 +143,17 @@ public sealed class MapData
     public bool IsWalkable(int cx, int cz)
         => GetCell(cx, cz).Terrain is Terrain.Grass or Terrain.Sand or Terrain.Marsh;
 
+    /// <summary>
+    /// Walkability at a world position: the cell containing it, or <c>false</c> for positions
+    /// outside the grid (the border reads as solid so callers need not bounds-check). Y is
+    /// ignored. The single seam both terrain collision and pathfinding read.
+    /// </summary>
+    public bool IsWalkableWorld(Vector3 world)
+    {
+        var (cx, cz) = WorldToCell(world);
+        return InBounds(cx, cz) && IsWalkable(cx, cz);
+    }
+
     /// <summary>The biome of the cell at (cx, cz). Throws if out of bounds.</summary>
     public Biome GetBiome(int cx, int cz) => GetCell(cx, cz).Biome;
 

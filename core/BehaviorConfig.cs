@@ -197,6 +197,28 @@ public sealed record NeedConfig
 }
 
 /// <summary>
+/// Navigation (A* pathfinding + repath cadence) tunables. Grouped out with the other
+/// sub-configs; consumed by <see cref="NavSystem"/> and <see cref="GridPathfinder"/>.
+/// </summary>
+public sealed record NavConfig
+{
+    /// <summary>Seconds between path recomputes for a goal-seeking agent. Between repaths the
+    /// agent follows its cached waypoints, so A* runs on a throttle, not every tick. A repath
+    /// also happens immediately when the goal cell changes or the next waypoint becomes blocked.</summary>
+    public float RepathInterval { get; init; } = 0.5f;
+
+    /// <summary>Hard cap on A* node expansions per search — bounds worst-case cost on the
+    /// 128×128 grid (a fully walled-off goal would otherwise flood-fill the whole map).
+    /// When exceeded, the search returns no path and the caller falls back to straight steering.</summary>
+    public int MaxExpansions { get; init; } = 4000;
+
+    /// <summary>Horizontal distance (arena units) within which an agent counts a waypoint as
+    /// reached and advances to the next. Roughly a cell — small enough to hug the route, large
+    /// enough not to stall on floating-point overshoot.</summary>
+    public float WaypointArriveRadius { get; init; } = 0.75f;
+}
+
+/// <summary>
 /// Player interaction / taming bond tunables. Grouped out of the former monolithic
 /// <see cref="BehaviorConfig"/> — see that class for the full split.
 /// </summary>
@@ -260,6 +282,7 @@ public sealed class BehaviorConfig
     public FlockConfig Flock { get; set; } = new();
     public NeedConfig Need { get; set; } = new();
     public InteractionConfig Interaction { get; set; } = new();
+    public NavConfig Nav { get; set; } = new();
 
     // --- decision cadence & anti-dithering (delegates to Brain) ---
 

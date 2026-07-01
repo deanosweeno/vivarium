@@ -280,6 +280,21 @@ public sealed class Simulator : IFlockEnv
                     };
                 }
 
+                // Navigation: for goal-seeking actions, replace the brain's straight-line
+                // DesiredVelocity with steering along an A* path that rounds obstacles. Reactive
+                // actions (Wander/Flee/…) keep their local steer; terrain collision below still
+                // stops them ramming. Falls back to the straight vector when no path exists.
+                if (Map is not null
+                    && entity.Brain.Current is { } navAction
+                    && NavSystem.IsGoalSeeking(navAction.Steering)
+                    && entity.FocusPosition is { } navGoal)
+                {
+                    var navVel = NavSystem.Steer(entity.Position, navGoal, entity.Nav,
+                        Map, Behavior.Nav, (float)delta, entity.Traits.MaxSpeed);
+                    if (navVel is { } v)
+                        entity.DesiredVelocity = v;
+                }
+
                 // Biome gradient: when outside a preferred biome, push gently toward the nearest
                 // preferred cell. Applied AFTER the brain so biome preference is physics, not
                 // decision-making. The brain decides the action; the sim biases its path.
@@ -297,7 +312,14 @@ public sealed class Simulator : IFlockEnv
             }
 
             // 2. Movement tick (steer toward DesiredVelocity + wall bounce)
+            var prevPos = entity.Position;
             entity.Movement.Tick(delta, entity, Arena, Rng);
+
+            // 2a. Terrain collision — slide along non-walkable cells (rock/water) instead of
+            // passing through or ramming. Applies to every action, so even reactive wander/flee
+            // that steer into an obstacle glance off it rather than vibrating against it.
+            if (Map is not null)
+                SimPhysics.ResolveTerrainCollision(entity, prevPos, Map);
 
             // 2b. Biome effects (happiness, speed) if a map + catalog are present
             ApplyBiomeEffects(entity, delta);

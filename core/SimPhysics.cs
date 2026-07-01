@@ -30,6 +30,55 @@ public static class SimPhysics
     }
 
     /// <summary>
+    /// Axis-separated tile collision: given where an agent was (<paramref name="prev"/>, assumed
+    /// walkable) and where it wants to be (<paramref name="next"/>), return the furthest legal
+    /// position that does not enter a non-walkable cell. The X and Z moves are tested independently
+    /// so motion parallel to an obstacle survives (the agent <em>slides</em> along a rock/lake face)
+    /// while motion into it is cancelled. Y is carried through untouched.
+    ///
+    /// Robustness: if <paramref name="prev"/> is itself on a blocked cell (e.g. spawned on rock),
+    /// the move is allowed as-is rather than locking the agent in place.
+    /// Deterministic — reads the grid only, no RNG.
+    /// </summary>
+    public static Vector3 SlideAgainstTerrain(Vector3 prev, Vector3 next, MapData map)
+    {
+        // If we started on a blocked cell, don't trap the agent — let it move freely out.
+        if (!map.IsWalkableWorld(prev))
+            return next;
+
+        float x = prev.X;
+        float z = prev.Z;
+
+        // Try the X move first (keeping Z at the old, known-good value), then the Z move.
+        var tryX = new Vector3(next.X, next.Y, prev.Z);
+        if (map.IsWalkableWorld(tryX)) x = next.X;
+
+        var tryZ = new Vector3(x, next.Y, next.Z);
+        if (map.IsWalkableWorld(tryZ)) z = next.Z;
+
+        return new Vector3(x, next.Y, z);
+    }
+
+    /// <summary>
+    /// Apply <see cref="SlideAgainstTerrain"/> to a creature that just integrated its movement,
+    /// zeroing the horizontal velocity component on any axis that got blocked so accumulated
+    /// momentum doesn't keep re-ramming the obstacle next tick (mirrors the wall/entity
+    /// jitter-cancel elsewhere in this class).
+    /// </summary>
+    public static void ResolveTerrainCollision(Creature entity, Vector3 prevPos, MapData map)
+    {
+        var resolved = SlideAgainstTerrain(prevPos, entity.Position, map);
+        if (resolved == entity.Position)
+            return;
+
+        var v = entity.Velocity;
+        if (resolved.X != entity.Position.X) v.X = 0f;
+        if (resolved.Z != entity.Position.Z) v.Z = 0f;
+        entity.Position = resolved;
+        entity.Velocity = v;
+    }
+
+    /// <summary>
     /// Resolve sphere-sphere overlaps for all entity pairs. Each pair is pushed apart by half
     /// the overlap distance, and any inward velocity that drove them together is cancelled so
     /// momentum doesn't re-ram them next tick (jitter).
