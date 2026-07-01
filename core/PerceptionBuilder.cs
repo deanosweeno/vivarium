@@ -36,6 +36,7 @@ public static class PerceptionBuilder
         float nearestDist = float.MaxValue;
         float personalSpace = self.Traits.Radius * behavior.PersonalSpaceRadii;
         var separationPush = Vector3.Zero;
+        var headingSum = Vector3.Zero;
         foreach (var other in entities)
         {
             if (ReferenceEquals(other, self)) continue;
@@ -53,10 +54,18 @@ public static class PerceptionBuilder
             // push). Skip exact overlap — ResolveEntityCollisions handles that.
             if (dist < personalSpace && dist > 1e-4f)
                 separationPush += new Vector3(-d.X, 0f, -d.Z) / dist * (1f - dist / personalSpace);
+            // Peer-alignment sample: sum unit headings of moving neighbors within sense radius.
+            if (dist <= radius)
+            {
+                var vel = new Vector3(other.Velocity.X, 0f, other.Velocity.Z);
+                if (vel.LengthSquared() > 1e-4f)
+                    headingSum += Vector3.Normalize(vel);
+            }
         }
 
         bool hasNeighbor = nearest is not null && nearestDist <= radius;
         float proximity = hasNeighbor ? 1f - nearestDist / radius : 0f;
+        Vector3 neighborHeading = headingSum.LengthSquared() > 1e-6f ? Vector3.Normalize(headingSum) : Vector3.Zero;
 
         // Flock cohesion targets the creature's flock anchor (an explicit group entity managed by
         // the flock system), not a live kin centroid — the herd moves as one circle around it.
@@ -179,6 +188,7 @@ public static class PerceptionBuilder
             NeighborPosition = nearest?.Position ?? self.Position,
             NeighborProximity = proximity,
             SeparationPush = separationPush,
+            NeighborHeading = neighborHeading,
             HasFlock = hasFlock,
             FlockAnchor = flockAnchor,
             FlockRadius = flockRadius,

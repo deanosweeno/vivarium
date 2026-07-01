@@ -123,6 +123,12 @@ public sealed record FlockConfig
     /// Faster than the old 0.25 so the herd reads as one migrating mass.</summary>
     public float FlockPace { get; init; } = 0.4f;
 
+    /// <summary>Weight of the light peer-alignment term (average neighbor heading) blended into
+    /// Flock steering — the "boids" alignment rule, layered on top of anchor cohesion so members
+    /// loosely match each other's direction instead of all independently orbiting the anchor.
+    /// 0 disables it (anchor-only cohesion, the pre-Phase-C behavior).</summary>
+    public float FlockAlignmentWeight { get; init; } = 0.08f;
+
     /// <summary>Circle radius at one member; grows with √(member count) by FlockRadiusPerMember.</summary>
     public float FlockBaseRadius { get; init; } = 2.5f;
 
@@ -281,6 +287,7 @@ public sealed class BehaviorConfig
     public float FrolicDriftWeight { get => Flock.FrolicDriftWeight; init => Flock = Flock with { FrolicDriftWeight = value }; }
     public float FlockWanderFloor { get => Flock.FlockWanderFloor; init => Flock = Flock with { FlockWanderFloor = value }; }
     public float FlockPace { get => Flock.FlockPace; init => Flock = Flock with { FlockPace = value }; }
+    public float FlockAlignmentWeight { get => Flock.FlockAlignmentWeight; init => Flock = Flock with { FlockAlignmentWeight = value }; }
 
     // --- wander dwell (delegates to Brain) ---
 

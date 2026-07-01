@@ -203,7 +203,11 @@ public sealed class UtilityBrain
                 // cohere and separate both cancel to zero. Reuses the shared Wander state so
                 // the drift is coherent with a later Wander stroll.
                 var drift = Wander(delta, cap, rng) * _config.FlockWanderFloor;
-                var blended = cohere + separate + drift;
+                // Light peer alignment (boids-style): nudge toward the average heading of nearby
+                // flock-mates, layered on top of anchor cohesion so the herd reads as members
+                // loosely following each other, not just independently orbiting one point.
+                var align = senses.NeighborHeading * cap * _config.FlockAlignmentWeight;
+                var blended = cohere + separate + drift + align;
                 return blended.LengthSquared() > cap * cap
                     ? Vector3.Normalize(blended) * cap
                     : blended;

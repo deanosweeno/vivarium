@@ -258,10 +258,27 @@ public sealed class Simulator : IFlockEnv
                 else
                     entity.SeparationTimer += (float)delta;
 
+                var previousSenses = entity.LastSenses;
+                var previousAction = entity.Brain.Current;
+
                 var senses = BuildSenses(entity);
                 entity.LastSenses = senses;
                 entity.Brain.Tick(delta, entity, senses, Rng);
                 entity.FocusPosition = ResolveFocus(entity.Brain.Current?.Steering, senses);
+
+                // Liveliness tells not tied to a player interaction (Startled/Curious/Content) —
+                // Happy/Dislike are set directly by the interaction verbs.
+                if (ReactionSystem.ResolveTransition(previousAction, entity.Brain.Current, previousSenses, senses)
+                    is { } reaction)
+                {
+                    entity.LastReaction = reaction switch
+                    {
+                        ReactionKind.Startled => CreatureReaction.Startled(entity.LastReaction),
+                        ReactionKind.Curious => CreatureReaction.Curious(entity.LastReaction),
+                        ReactionKind.Content => CreatureReaction.Content(entity.LastReaction),
+                        _ => entity.LastReaction,
+                    };
+                }
 
                 // Biome gradient: when outside a preferred biome, push gently toward the nearest
                 // preferred cell. Applied AFTER the brain so biome preference is physics, not

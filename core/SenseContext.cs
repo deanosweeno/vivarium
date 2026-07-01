@@ -34,6 +34,14 @@ public readonly struct SenseContext
     /// </summary>
     public Vector3 SeparationPush { get; init; }
 
+    /// <summary>
+    /// Average heading (unit XZ vector) of moving neighbors within sense radius, or zero when no
+    /// neighbor is moving. Blended into Flock steering as a light peer-alignment term (the "boids"
+    /// alignment rule) so a herd reads as members loosely matching each other's direction, not just
+    /// orbiting a shared anchor point.
+    /// </summary>
+    public Vector3 NeighborHeading { get; init; }
+
     /// <summary>Whether this creature belongs to a non-empty <see cref="Flock"/> to cohere toward.</summary>
     public bool HasFlock { get; init; }
 

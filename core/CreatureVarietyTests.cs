@@ -205,4 +205,68 @@ public class CreatureVarietyTests
         Assert.True(latch.Active(panicking));
         Assert.False(latch.Active(safe));
     }
+
+    // ---------- NeighborHeading (peer alignment) ----------
+
+    [Fact]
+    public void NeighborHeading_AveragesMovingNeighborDirections()
+    {
+        var behavior = new BehaviorConfig();
+        var self = new Creature(Vector3.Zero, new CreatureTraits { MaxSpeed = 1f }, new SteeringLocomotion());
+
+        var a = new Creature(new Vector3(1f, 0f, 0f), null, new SteeringLocomotion());
+        a.Velocity = new Vector3(1f, 0f, 0f); // heading +X
+        var b = new Creature(new Vector3(-1f, 0f, 0f), null, new SteeringLocomotion());
+        b.Velocity = new Vector3(1f, 0f, 0f); // heading +X (same)
+
+        var senses = PerceptionBuilder.Build(
+            self, [self, a, b], [], null, null, null, behavior, new NeverFleeStrategy(), NoFood);
+
+        Assert.True(senses.NeighborHeading.LengthSquared() > 0.99f); // near-unit, both agree on +X
+        Assert.True(senses.NeighborHeading.X > 0.9f);
+    }
+
+    [Fact]
+    public void NeighborHeading_OpposingNeighbors_CancelToNearZero()
+    {
+        var behavior = new BehaviorConfig();
+        var self = new Creature(Vector3.Zero, new CreatureTraits { MaxSpeed = 1f }, new SteeringLocomotion());
+
+        var a = new Creature(new Vector3(1f, 0f, 0f), null, new SteeringLocomotion());
+        a.Velocity = new Vector3(1f, 0f, 0f);
+        var b = new Creature(new Vector3(-1f, 0f, 0f), null, new SteeringLocomotion());
+        b.Velocity = new Vector3(-1f, 0f, 0f); // opposite heading
+
+        var senses = PerceptionBuilder.Build(
+            self, [self, a, b], [], null, null, null, behavior, new NeverFleeStrategy(), NoFood);
+
+        Assert.Equal(Vector3.Zero, senses.NeighborHeading);
+    }
+
+    [Fact]
+    public void NeighborHeading_NoMovingNeighbors_IsZero()
+    {
+        var behavior = new BehaviorConfig();
+        var self = new Creature(Vector3.Zero, new CreatureTraits { MaxSpeed = 1f }, new SteeringLocomotion());
+        var stillNeighbor = new Creature(new Vector3(1f, 0f, 0f), null, new SteeringLocomotion());
+
+        var senses = PerceptionBuilder.Build(
+            self, [self, stillNeighbor], [], null, null, null, behavior, new NeverFleeStrategy(), NoFood);
+
+        Assert.Equal(Vector3.Zero, senses.NeighborHeading);
+    }
+
+    [Fact]
+    public void NeighborHeading_IgnoresNeighborsBeyondSenseRadius()
+    {
+        var behavior = new BehaviorConfig();
+        var self = new Creature(Vector3.Zero, new CreatureTraits { MaxSpeed = 1f }, new SteeringLocomotion());
+        var farNeighbor = new Creature(new Vector3(behavior.SenseRadius + 5f, 0f, 0f), null, new SteeringLocomotion());
+        farNeighbor.Velocity = new Vector3(1f, 0f, 0f);
+
+        var senses = PerceptionBuilder.Build(
+            self, [self, farNeighbor], [], null, null, null, behavior, new NeverFleeStrategy(), NoFood);
+
+        Assert.Equal(Vector3.Zero, senses.NeighborHeading);
+    }
 }
