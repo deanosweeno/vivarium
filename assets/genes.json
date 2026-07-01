@@ -23,5 +23,21 @@
     "Id": "spec.sheep.goldenfleece", "Kind": "Specialty", "Rarity": "Legendary", "Tier": 2, "Visible": true, "SourceSpecies": "sheep",
     "Parts": [{ "Slot": "Surface", "Shape": "Box", "Size": [0.9, 0.82, 1.0], "Socket": [0.0, 0.52, 0.0], "Tint": "#F4D35E", "Role": "Static" }],
     "Pins": [{ "Key": "Sociability", "Value": 1.0 }]
+  },
+
+  { "Id": "horse.mat.core",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "horse" },
+  { "Id": "horse.mat.head",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "horse" },
+  { "Id": "horse.mat.eyes",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "horse" },
+  { "Id": "horse.mat.legs",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "horse" },
+  { "Id": "horse.mat.tail",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "horse" },
+  { "Id": "horse.mat.mane",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "horse" },
+  {
+    "Id": "spec.horse.swift", "Kind": "Specialty", "Rarity": "Rare", "Tier": 1, "Visible": true, "SourceSpecies": "horse",
+    "Pins": [{ "Key": "SprintSpeed", "Value": 2.6 }]
+  },
+  {
+    "Id": "spec.horse.stormmane", "Kind": "Specialty", "Rarity": "Legendary", "Tier": 2, "Visible": true, "SourceSpecies": "horse",
+    "Parts": [{ "Slot": "Appendage", "Shape": "Box", "Size": [0.09, 0.28, 0.42], "Socket": [0.0, 1.05, 0.30], "Tint": "#2E6F9E", "Role": "Static" }],
+    "Pins": [{ "Key": "SprintAcceleration", "Value": 5.0 }]
   }
 ]

@@ -16,7 +16,7 @@ namespace Vivarium.DevTools;
 /// but stripped of the shipped game's HUD/keybind specifics — this node only ever exists inside
 /// the dev harness scene.
 /// </summary>
-public partial class HarnessSimHost : Node3D
+public partial class HarnessSimHost : Node3D, ISpliceHost
 {
     private const string CreaturesPath = "res://assets/creatures.json";
     private const string FoodsPath = "res://assets/foods.json";
@@ -54,6 +54,7 @@ public partial class HarnessSimHost : Node3D
     // --- player ---
     public Blob? Player { get; private set; }
     public PlayerInputMode? PlayerInput { get; private set; }
+    public SNVector3 PlayerPosition => Player?.Position ?? SNVector3.Zero;
 
     private MapView _mapView = null!;
     private BodyPlan? _sproutPlan;

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/genetics_ui/GeneSlotView.cs" id="1_slot01"]
+
+[node name="GeneSlot" type="PanelContainer"]
+script = ExtResource("1_slot01")

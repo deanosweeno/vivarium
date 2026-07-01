@@ -68,5 +68,58 @@
     },
     "FleeStrategy": "sheep",
     "ActionSet": "herbivore"
+  },
+  {
+    "Id": "horse",
+    "Name": "Horse",
+    "BaseScale": 1.15,
+    "PrimaryHex": "#8B5A2B",
+    "SecondaryHex": "#3A2617",
+    "Parts": [
+      { "Slot": "Core",       "Shape": "Box",      "Size": [0.50, 0.60, 1.20], "Socket": [0.00, 0.62, 0.00],  "Tint": "#8B5A2B", "Role": "Body" },
+      { "Slot": "Head",       "Shape": "Capsule",  "Size": [0.26, 0.40, 0.26], "Socket": [0.00, 0.95, 0.58],  "Tint": "#6E4522", "Role": "Head" },
+      { "Slot": "Eyes",       "Shape": "Sphere",   "Size": [0.07, 0.07, 0.07], "Socket": [-0.11, 1.02, 0.72], "Tint": "#161412", "Role": "Eye" },
+      { "Slot": "Eyes",       "Shape": "Sphere",   "Size": [0.07, 0.07, 0.07], "Socket": [0.11, 1.02, 0.72],  "Tint": "#161412", "Role": "Eye" },
+      { "Slot": "Appendage",  "Shape": "Box",      "Size": [0.08, 0.26, 0.40], "Socket": [0.00, 1.05, 0.30],  "Tint": "#3A2617", "Role": "Static" },
+      { "Slot": "Locomotion", "Shape": "Capsule",  "Size": [0.11, 0.50, 0.11], "Socket": [-0.20, 0.25, 0.42], "Tint": "#3A2617", "Role": "Limb", "Phase": 0.0,    "Freq": 6.0 },
+      { "Slot": "Locomotion", "Shape": "Capsule",  "Size": [0.11, 0.50, 0.11], "Socket": [0.20, 0.25, 0.42],  "Tint": "#3A2617", "Role": "Limb", "Phase": 3.1416, "Freq": 6.0 },
+      { "Slot": "Locomotion", "Shape": "Capsule",  "Size": [0.11, 0.50, 0.11], "Socket": [-0.20, 0.25, -0.42],"Tint": "#3A2617", "Role": "Limb", "Phase": 3.1416, "Freq": 6.0 },
+      { "Slot": "Locomotion", "Shape": "Capsule",  "Size": [0.11, 0.50, 0.11], "Socket": [0.20, 0.25, -0.42], "Tint": "#3A2617", "Role": "Limb", "Phase": 0.0,    "Freq": 6.0 },
+      { "Slot": "Tail",       "Shape": "Cylinder", "Size": [0.09, 0.40, 0.09], "Socket": [0.00, 0.55, -0.62], "Tint": "#3A2617", "Role": "Tail", "Phase": 0.0,    "Freq": 3.0 }
+    ],
+    "Traits": {
+      "Radius": 0.75,
+      "MaxSpeed": 0.9,
+      "JumpHeight": 2.0,
+      "TurnRate": 1.4,
+      "Acceleration": 1.8,
+      "SprintSpeed": 1.9,
+      "SprintAcceleration": 4.2,
+      "GravityScale": 0.0,
+      "PreferredBiomes": ["Plains"],
+      "FatigueGainPerSec": 0.0033333,
+      "FatigueRecoverPerSec": 0.0222222,
+      "Diet": ["berries"],
+      "GrazeHungerThreshold": 0.2
+    },
+    "Drives": {
+      "Curiosity": 0.4,
+      "Fear": 0.2,
+      "Sociability": 0.85,
+      "Appetite": 0.85,
+      "Aggression": 0.05,
+      "PlayCuddle": 0.25
+    },
+    "Herd": {
+      "HerdCount": 2,
+      "MinHerdSeparation": 22.0,
+      "HerdJitter": 2.5,
+      "HerdSizeMin": 3,
+      "HerdSizeMax": 5,
+      "Biome": "Plains",
+      "JitterNeeds": true
+    },
+    "FleeStrategy": "sheep",
+    "ActionSet": "herbivore"
   }
 ]

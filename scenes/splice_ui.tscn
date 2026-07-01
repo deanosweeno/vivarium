@@ -1,0 +1,115 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/genetics_ui/SpliceUi.cs" id="1_splice01"]
+[ext_resource type="Script" path="res://scripts/genetics_ui/GeneTrayView.cs" id="2_tray01"]
+[ext_resource type="PackedScene" path="res://scenes/gene_slot.tscn" id="3_slot01"]
+
+[node name="SpliceUi" type="CanvasLayer"]
+layer = 9
+visible = false
+script = ExtResource("1_splice01")
+_baseSlotPath = NodePath("Root/Board/BaseSlot")
+_ringSlotPaths = [NodePath("Root/Board/RingSlot0"), NodePath("Root/Board/RingSlot1"), NodePath("Root/Board/RingSlot2"), NodePath("Root/Board/RingSlot3"), NodePath("Root/Board/RingSlot4"), NodePath("Root/Board/RingSlot5"), NodePath("Root/Board/RingSlot6"), NodePath("Root/Board/RingSlot7")]
+_baseTrayPath = NodePath("Root/Trays/BaseTray")
+_specialtyTrayPath = NodePath("Root/Trays/SpecialtyTray")
+_spliceButtonPath = NodePath("Root/Actions/SpliceButton")
+_closeButtonPath = NodePath("Root/Actions/CloseButton")
+_statusLabelPath = NodePath("Root/StatusLabel")
+
+[node name="Root" type="Control" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 1
+
+[node name="Backdrop" type="ColorRect" parent="Root"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.05, 0.05, 0.08, 0.55)
+mouse_filter = 2
+
+[node name="Board" type="Control" parent="Root"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="RingSlot0" parent="Root/Board" instance=ExtResource("3_slot01")]
+position = Vector2(316, 31)
+
+[node name="RingSlot1" parent="Root/Board" instance=ExtResource("3_slot01")]
+position = Vector2(610, 42)
+
+[node name="RingSlot2" parent="Root/Board" instance=ExtResource("3_slot01")]
+position = Vector2(201, 127)
+
+[node name="RingSlot3" parent="Root/Board" instance=ExtResource("3_slot01")]
+position = Vector2(709, 141)
+
+[node name="BaseSlot" parent="Root/Board" instance=ExtResource("3_slot01")]
+position = Vector2(456, 178)
+
+[node name="RingSlot4" parent="Root/Board" instance=ExtResource("3_slot01")]
+position = Vector2(201, 220)
+
+[node name="RingSlot5" parent="Root/Board" instance=ExtResource("3_slot01")]
+position = Vector2(709, 239)
+
+[node name="RingSlot6" parent="Root/Board" instance=ExtResource("3_slot01")]
+position = Vector2(310, 327)
+
+[node name="RingSlot7" parent="Root/Board" instance=ExtResource("3_slot01")]
+position = Vector2(610, 336)
+
+[node name="StatusLabel" type="Label" parent="Root"]
+offset_left = 40.0
+offset_top = 400.0
+offset_right = 880.0
+offset_bottom = 424.0
+horizontal_alignment = 1
+
+[node name="Actions" type="HBoxContainer" parent="Root"]
+offset_left = 900.0
+offset_top = 20.0
+offset_right = 1130.0
+offset_bottom = 56.0
+
+[node name="SpliceButton" type="Button" parent="Root/Actions"]
+layout_mode = 2
+text = "Splice"
+
+[node name="CloseButton" type="Button" parent="Root/Actions"]
+layout_mode = 2
+text = "Close"
+
+[node name="Trays" type="HBoxContainer" parent="Root"]
+offset_left = 20.0
+offset_top = 430.0
+offset_right = 1130.0
+offset_bottom = 630.0
+theme_override_constants/separation = 12
+
+[node name="BaseTray" type="ScrollContainer" parent="Root/Trays"]
+custom_minimum_size = Vector2(350, 190)
+layout_mode = 2
+script = ExtResource("2_tray01")
+AcceptedKind = 0
+ChipContainerPath = NodePath("Chips")
+ChipScene = ExtResource("3_slot01")
+
+[node name="Chips" type="HFlowContainer" parent="Root/Trays/BaseTray"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="SpecialtyTray" type="ScrollContainer" parent="Root/Trays"]
+layout_mode = 2
+size_flags_horizontal = 3
+script = ExtResource("2_tray01")
+AcceptedKind = 1
+ChipContainerPath = NodePath("Chips")
+ChipScene = ExtResource("3_slot01")
+
+[node name="Chips" type="HFlowContainer" parent="Root/Trays/SpecialtyTray"]
+layout_mode = 2
+size_flags_horizontal = 3

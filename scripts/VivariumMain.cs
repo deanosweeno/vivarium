@@ -6,16 +6,20 @@ using SNVector3 = System.Numerics.Vector3;
 
 namespace Vivarium.Scripts;
 
-public partial class VivariumMain : Node3D
+public partial class VivariumMain : Node3D, ISpliceHost
 {
     [Export] private PackedScene? _blobScene;
     [Export] private PackedScene? _foodScene;
     [Export] private string _foodsPath = "res://assets/foods.json";
     [Export] private string _creaturesPath = "res://assets/creatures.json";
+    [Export] private string _genesPath = "res://assets/genes.json";
+    [Export] private PackedScene? _spliceUiScene;
     [Export] private Camera3D? _camera;
     [Export] private int _seed;
 
     private Simulator _sim = null!;
+    private CreatureCatalog _creatures = CreatureCatalog.Empty;
+    private SpliceUi? _spliceUi;
     private BodyPlan? _sproutPlan;
     private BodyPlan? _sheepPlan;
     private readonly Dictionary<Blob, CreatureVisual> _visuals = new();
@@ -30,6 +34,7 @@ public partial class VivariumMain : Node3D
     private CameraOrbit? _cameraOrbit;
     private PlayerVisual? _playerVisual;
     private Label? _foodHudLabel;
+    private bool _paused;
 
     public override void _Ready()
     {
@@ -134,9 +139,17 @@ public partial class VivariumMain : Node3D
 
         // Load the creature catalog (body plans + per-type sim rules).
         var creatures = LoadCreatures(_creaturesPath);
+        _creatures = creatures;
         _sproutPlan = creatures.Get("sprout");
         var sheepDef = creatures.GetDef("sheep");
         _sheepPlan = sheepDef?.Body;
+        var horseDef = creatures.GetDef("horse");
+
+        // Load the gene catalog for the splice UI (harvest/craft gating is deferred — see
+        // docs/features/splicing.md §3 — so for now every species' base + specialty genes are
+        // handed to the player directly below).
+        var genes = LoadGenes(_genesPath);
+        _sim.Genes = genes;
 
         _foodScene ??= ResourceLoader.Load<PackedScene>("res://scenes/Food.tscn");
 
@@ -165,12 +178,38 @@ public partial class VivariumMain : Node3D
             HerdSpawner.SpawnHerds(_sim, sheepDef, mapView.Map, _sim.Rng);
         }
 
+        // --- Horse herds: same data-driven path as sheep (assets/creatures.json) ---
+        if (mapView?.Map != null && horseDef?.Herd != null)
+        {
+            HerdSpawner.SpawnHerds(_sim, horseDef, mapView.Map, _sim.Rng);
+        }
+
         // Spawn the player avatar at the arena center and point the follow-camera at it.
         (_player, _playerInput) = _sim.SpawnPlayer(SNVector3.Zero);
         _cameraOrbit = _camera as CameraOrbit;
         if (_cameraOrbit != null)
             _cameraOrbit.Target = new Vector3(_player.Position.X, _player.Position.Y, _player.Position.Z);
+
+        // Auto-populate the player's gene pool with every species' base gene + every catalog
+        // gene, standing in for the not-yet-wired harvest/craft loop so the splice UI has real
+        // input to work with.
+        GenePoolSeed.FillAll(_playerInput.Pool, creatures, genes);
+
+        // Splice UI — Tab toggles it (see _Input below).
+        _spliceUiScene ??= ResourceLoader.Load<PackedScene>("res://scenes/splice_ui.tscn");
+        if (_spliceUiScene != null)
+        {
+            _spliceUi = _spliceUiScene.Instantiate<SpliceUi>();
+            AddChild(_spliceUi);
+            _spliceUi.Init(this);
+        }
     }
+
+    public PlayerInputMode? PlayerInput => _playerInput;
+    public Simulator Sim => _sim;
+    public CreatureCatalog Creatures => _creatures;
+    public SNVector3 PlayerPosition => _player?.Position ?? SNVector3.Zero;
+    public bool Paused { get => _paused; set => _paused = value; }
 
     public override void _Process(double delta)
     {
@@ -178,8 +217,11 @@ public partial class VivariumMain : Node3D
         if (Input.IsActionJustPressed("debug_toggle"))
             _showDebug = !_showDebug;
 
-        UpdatePlayerInput();
-        _sim.Tick(delta);
+        if (!_paused)
+        {
+            UpdatePlayerInput();
+            _sim.Tick(delta);
+        }
         TrackPlayerWithCamera();
 
         foreach (var entity in _sim.Entities)
@@ -311,6 +353,20 @@ public partial class VivariumMain : Node3D
         }
     }
 
+    /// <summary>
+    /// Tab toggles the splice UI. Handled in <c>_Input</c> (not <c>_UnhandledKeyInput</c>) so it
+    /// fires before Godot's Control focus-traversal can consume Tab — same trick the devtools
+    /// harness uses for its splice overlay.
+    /// </summary>
+    public override void _Input(InputEvent @event)
+    {
+        if (@event is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Tab })
+        {
+            _spliceUi?.Toggle();
+            GetViewport().SetInputAsHandled();
+        }
+    }
+
     /// <summary>Keep the orbit camera centered on the avatar each frame.</summary>
     private void TrackPlayerWithCamera()
     {
@@ -361,6 +417,29 @@ public partial class VivariumMain : Node3D
         {
             GD.PrintErr($"VivariumMain: failed to parse creatures at '{path}': {e.Message}; no body plans.");
             return CreatureCatalog.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Load the harvestable gene catalog through Godot's FileAccess (string seam, works inside an
+    /// exported .pck). Falls back to an empty catalog if the file is missing.
+    /// </summary>
+    private static GeneCatalog LoadGenes(string path)
+    {
+        using var file = FileAccess.Open(path, FileAccess.ModeFlags.Read);
+        if (file == null)
+        {
+            GD.PrintErr($"VivariumMain: could not open genes at '{path}' ({FileAccess.GetOpenError()}); no genes.");
+            return GeneCatalog.Empty;
+        }
+        try
+        {
+            return GeneCatalog.Parse(file.GetAsText());
+        }
+        catch (System.Exception e)
+        {
+            GD.PrintErr($"VivariumMain: failed to parse genes at '{path}': {e.Message}; no genes.");
+            return GeneCatalog.Empty;
         }
     }
 

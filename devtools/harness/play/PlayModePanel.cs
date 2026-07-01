@@ -2,9 +2,7 @@ using System.Linq;
 using Godot;
 using Vivarium.Core;
 using Vivarium.Scripts;
-using FileAccess = Godot.FileAccess;
 using SNVector2 = System.Numerics.Vector2;
-using SNVector3 = System.Numerics.Vector3;
 
 namespace Vivarium.DevTools;
 
@@ -12,7 +10,8 @@ namespace Vivarium.DevTools;
 /// Mode 5 — Play: a controllable avatar with a real input scheme (WASD + verb keys), camera
 /// follows the player instead of the click-selection. Mirrors <see cref="Vivarium.Scripts.VivariumMain"/>'s
 /// <c>UpdatePlayerInput</c>/<c>_UnhandledKeyInput</c> (camera-relative move, F/G/1/2/3 verbs), and adds
-/// <b>H</b> for the new <c>harvest</c> verb plus <b>Tab</b> to pull up the <see cref="SpliceOverlay"/>.
+/// <b>H</b> for the new <c>harvest</c> verb plus <b>Tab</b> to pull up the real, in-game
+/// <see cref="Vivarium.Scripts.SpliceUi"/> (same scene the shipped game uses).
 /// This is the "actually play it" mode — <see cref="PlayerModePanel"/> stays a button-driven inspector.
 /// </summary>
 public partial class PlayModePanel : VBoxContainer, IHarnessPanel
@@ -22,7 +21,7 @@ public partial class PlayModePanel : VBoxContainer, IHarnessPanel
     private HarnessSimHost _host = null!;
     private RichTextLabel _inspector = null!;
     private Label _poolSummary = null!;
-    private SpliceOverlay _overlay = null!;
+    private SpliceUi _overlay = null!;
     private bool _active;
 
     public void Build(HarnessSimHost host)
@@ -51,9 +50,10 @@ public partial class PlayModePanel : VBoxContainer, IHarnessPanel
         _poolSummary = new Label();
         AddChild(_poolSummary);
 
-        _overlay = new SpliceOverlay();
-        _overlay.Build(host);
+        var spliceScene = ResourceLoader.Load<PackedScene>("res://scenes/splice_ui.tscn");
+        _overlay = spliceScene.Instantiate<SpliceUi>();
         AddChild(_overlay);
+        _overlay.Init(host);
     }
 
     public void OnEnter()
@@ -62,7 +62,8 @@ public partial class PlayModePanel : VBoxContainer, IHarnessPanel
         SetProcess(true);
         _active = true;
         _host.SpawnPlayer();
-        LoadPoolIfPresent();
+        if (_host.PlayerInput is { } input)
+            GenePoolSeed.FillAll(input.Pool, _host.Creatures, _host.Genes);
     }
 
     public void OnExit()
@@ -158,20 +159,5 @@ public partial class PlayModePanel : VBoxContainer, IHarnessPanel
             return $"{grp.Key}: {grp.Count()} genes ({status})";
         });
         return string.Join("\n", lines);
-    }
-
-    private void LoadPoolIfPresent()
-    {
-        if (_host.PlayerInput is null) return;
-        using var file = FileAccess.Open(SpliceOverlay.PoolSavePath, FileAccess.ModeFlags.Read);
-        if (file is null) return;
-        try
-        {
-            _host.PlayerInput.Pool = GenePool.Load(file.GetAsText(), _host.Genes);
-        }
-        catch (System.Exception e)
-        {
-            GD.PrintErr($"PlayModePanel: gene pool load failed: {e.Message}");
-        }
     }
 }

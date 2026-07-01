@@ -27,8 +27,19 @@ Built piece-by-piece in `core/genetics/`. ✅ done · 🚧 partial · ⬜ not st
   expressed genome into the live sim as a real `Blob` (auto-rendered by `CreatureVisual`), retained
   on `Creature.Genome`; `Genetics.Similarity` reads `Genome` when both creatures have one (shared
   base species + specialty overlap), else falls back to Body+Drives. Exposed via the devtools
-  Genetics panel "Spawn into sim" button. **Pending:** player-facing (non-devtools) UI and
-  `assets/creatures.json` gene metadata.
+  Genetics panel "Spawn into sim" button. **Pending:** `assets/creatures.json` gene metadata.
+- ✅ **Player-facing splice UI** — `scenes/splice_ui.tscn` + `scripts/genetics_ui/` (`GeneSlotView`,
+  `GeneTrayView`, `SpliceUi`, `ISpliceHost`): Tab opens a drag-and-drop board (1 base slot + 8
+  specialty ring slots, locked past `GeneticsConfig.DefaultSpliceBudget`) fed by two scrollable
+  trays, rarity color-coded. Pauses the sim while open (`ISpliceHost.Paused`). Splice button runs
+  `Splicer.Splice` → `Expressor.Express` → `Sim.SpawnFromPhenotype`. `SpliceUi` depends only on
+  `ISpliceHost` (`PlayerInput`/`Sim`/`Creatures`/`PlayerPosition`/`Paused`), so both the real game
+  (`VivariumMain`) and the devtools harness (`HarnessSimHost`, Play mode) instantiate the *same*
+  scene on Tab — devtools' old bespoke `SpliceOverlay` (dropdown/checkbox craft-and-save UI) has
+  been retired. `core/genetics/GenePoolSeed.FillAll` auto-populates `PlayerInputMode.Pool` with
+  every species' base gene + every catalog gene for both hosts (harvest/craft gating and pool
+  persistence are still deferred to a separate craft screen — see §3; devtools' isolated Genetics
+  mode still exercises the real harvest→craft→splice gate independently).
 
 How the player **harvests genes** from animals and **splices** them into hybrids. A genome is
 a composition-first flat list of genes; an `Expressor` turns a genome into the existing
@@ -326,10 +337,9 @@ buttons: a WASD-controlled avatar with a real `harvest` verb and a pull-up splic
   player's `PlayerInputMode.Pool`. Non-lethal — sets a mild `Startled` tell, not a bond hit;
   sampling isn't play.
 - **`PlayModePanel`** — camera-relative WASD (mirrors `VivariumMain.UpdatePlayerInput`), verb
-  keys (F/G/1/2/3/H), **Tab** pulls up the splice overlay.
-- **`SpliceOverlay`** — craft/splice UI reading/writing the *player's* `GenePool` (not a
-  mode-local one). Pauses the sim while open, restores on close. Save/Load persist the pool to
-  `user://genepool.json`.
+  keys (F/G/1/2/3/H), **Tab** pulls up the real, in-game `SpliceUi` (see §9 above) reading/writing
+  the *player's* `GenePool` (not a mode-local one) — the same scene the shipped game uses, not a
+  devtools-only stand-in.
 
 ---
 
