@@ -49,6 +49,20 @@ public enum GrazingMode
 }
 
 /// <summary>
+/// Declarative anti-dither latch: while this action is committed, hold it (resist being
+/// switched away from by a merely-better-scoring challenger) as long as <see cref="Input"/>
+/// reads above <see cref="Threshold"/>. Replaces a <see cref="SteeringKind"/>-special-cased
+/// block in <see cref="UtilityBrain.Decide"/> with per-action data — e.g. Forage holds while
+/// Hunger is above the satiation floor, Rest holds while Fatigue remains, Frolic holds while
+/// Boredom remains, FleePlayer holds while <see cref="SenseContext.PlayerPanic"/> is true.
+/// </summary>
+public readonly record struct HoldWhile(InputKind Input, float Threshold = 0f)
+{
+    /// <summary>Whether the latch is currently active for this sense snapshot.</summary>
+    public bool Active(in SenseContext ctx) => Consideration.ReadInput(Input, ctx) > Threshold;
+}
+
+/// <summary>
 /// A candidate behavior the Utility AI can choose. Pure data: a steering kind, a base
 /// weight, and a list of <see cref="Consideration"/>s multiplied to a [0,1] score. An
 /// action may be flagged emergency-capable so a high score can interrupt a committed
@@ -77,6 +91,12 @@ public sealed class BehaviorAction
     /// flag — no coupling to which specific <see cref="SteeringKind"/> the action uses.
     /// </summary>
     public GrazingMode Grazing { get; init; } = GrazingMode.None;
+
+    /// <summary>
+    /// Optional anti-dither latch (see <see cref="HoldWhile"/>). Null = no latch — the action
+    /// competes purely on score every decision.
+    /// </summary>
+    public HoldWhile? HoldWhile { get; init; }
 
     /// <summary>score = BaseWeight × ∏ considerations (in [0,1]).</summary>
     public float Score(in SenseContext ctx, Drives drives)

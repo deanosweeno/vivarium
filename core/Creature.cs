@@ -105,6 +105,14 @@ public class Creature
     public bool IsFrolicking => Brain?.Current?.Steering == SteeringKind.Frolic;
 
     /// <summary>
+    /// Per-creature-type flee-from-player policy, resolved from <see cref="CreatureDef.FleeStrategy"/>
+    /// via <see cref="FleeStrategyRegistry"/> (set by <see cref="HerdSpawner"/>). Null = the
+    /// creature has no type-specific override; <see cref="Brain"/> falls back to the strategy it
+    /// was constructed with (typically the Simulator-wide default).
+    /// </summary>
+    public IFleeStrategy? FleeStrategy { get; set; }
+
+    /// <summary>
     /// The single player-lane need this creature is currently asking the player to fill — the
     /// value behind its thought-bubble. Set each tick by the Simulator via
     /// <see cref="NeedBroadcast.Resolve"/>; read by the visual layer. Cosmetic/UX only.

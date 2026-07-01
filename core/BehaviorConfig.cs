@@ -402,6 +402,8 @@ public sealed class BehaviorConfig
             Name = "Rest",
             Steering = SteeringKind.Rest,
             BaseWeight = 1f,
+            // Rest until fatigue is fully recovered.
+            HoldWhile = new HoldWhile(InputKind.Fatigue),
             Considerations =
             [
                 new Consideration { Input = InputKind.Fatigue,
@@ -419,6 +421,9 @@ public sealed class BehaviorConfig
             Steering = SteeringKind.Forage,
             Grazing = GrazingMode.Always,
             BaseWeight = 0.9f,
+            // Eat-until-full latch: stays committed to Forage until Hunger drops back to the
+            // satiation floor, so Flock/Approach can't yank a creature off food after one bite.
+            HoldWhile = new HoldWhile(InputKind.Hunger, Threshold: 0.15f),
             Considerations =
             [
                 new Consideration { Input = InputKind.Hunger, Drive = DriveKind.Appetite,
@@ -470,6 +475,8 @@ public sealed class BehaviorConfig
             Name = "Frolic",
             Steering = SteeringKind.Frolic,
             BaseWeight = 1f,
+            // Play until boredom is fully drained.
+            HoldWhile = new HoldWhile(InputKind.Boredom),
             Considerations =
             [
                 new Consideration { Input = InputKind.Boredom,
@@ -490,6 +497,10 @@ public sealed class BehaviorConfig
             BaseWeight = 1f,
             EmergencyCapable = true,
             EmergencyThreshold = 0.6f,
+            // Flee until the player is no longer a threat or the creature has rejoined a flock.
+            // Driven by the same SenseContext.PlayerPanic property as the brain's unconditional
+            // override (Phase A), not a re-derived predicate.
+            HoldWhile = new HoldWhile(InputKind.PlayerPanic, Threshold: 0.5f),
             Considerations =
             [
                 // Threat gate: 1 when the player is a threat, 0 otherwise → kills the

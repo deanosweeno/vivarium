@@ -63,6 +63,8 @@
       "HerdSizeMax": 6,
       "Biome": "Plains",
       "JitterNeeds": true
-    }
+    },
+    "FleeStrategy": "sheep",
+    "ActionSet": "herbivore"
   }
 ]

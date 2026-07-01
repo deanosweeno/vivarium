@@ -40,16 +40,44 @@ public static class HerdSpawner
     /// <summary>
     /// Spawn herds from a data-driven <see cref="CreatureDef"/> (its traits, drives, herd config,
     /// and body plan). Throws if the def has no <see cref="CreatureDef.Herd"/> — a non-herding type.
+    ///
+    /// Resolves the def's optional <see cref="CreatureDef.FleeStrategy"/> /
+    /// <see cref="CreatureDef.ActionSet"/> names (via <see cref="FleeStrategyRegistry"/> /
+    /// <see cref="ActionSetCatalog"/>) and builds a dedicated <see cref="BlobFactory"/> from them,
+    /// falling back to the Simulator's shared <see cref="Simulator.Behavior"/> /
+    /// <see cref="Simulator.FleeStrategy"/> defaults when a def doesn't override them — so a
+    /// creature *type* can carry its own behavior without every type needing to.
     /// </summary>
-    public static List<Creature> SpawnHerds(
-        Simulator sim, ICreatureFactory factory, CreatureDef def, MapData map, Random rng)
+    public static List<Creature> SpawnHerds(Simulator sim, CreatureDef def, MapData map, Random rng)
     {
         if (def.Herd is null)
             throw new InvalidOperationException($"Creature '{def.Id}' has no Herd config to spawn from.");
-        return SpawnHerds(sim, factory,
+
+        var fleeStrategy = FleeStrategyRegistry.Resolve(def.FleeStrategy, sim.Behavior.Interaction.PartialBondThreshold)
+            ?? sim.FleeStrategy;
+
+        var behavior = sim.Behavior;
+        if (ActionSetCatalog.Resolve(def.ActionSet) is { } actions)
+        {
+            behavior = new BehaviorConfig
+            {
+                Brain = sim.Behavior.Brain with { Actions = actions },
+                Flock = sim.Behavior.Flock,
+                Need = sim.Behavior.Need,
+                Interaction = sim.Behavior.Interaction,
+            };
+        }
+
+        var factory = new BlobFactory(behavior, fleeStrategy, rng);
+        var spawned = SpawnHerds(sim, factory,
             def.Traits ?? CreatureTraits.Default,
             def.Drives ?? Drives.Default,
             map, def.Herd, rng, def.Body);
+
+        foreach (var creature in spawned)
+            creature.FleeStrategy = fleeStrategy;
+
+        return spawned;
     }
 
     /// <summary>

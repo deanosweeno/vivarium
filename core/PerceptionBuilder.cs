@@ -26,7 +26,9 @@ public static class PerceptionBuilder
         IFleeStrategy fleeStrategy,
         Func<Vector3, HashSet<string>?, (FoodItem? Item, float Dist)> nearestFood)
     {
-        float radius = behavior.SenseRadius;
+        // Per-creature-type override (CreatureTraits.SenseRadius, set from creatures.json) beats
+        // the shared config default, so a keen-eyed vs. dull creature perceives differently.
+        float radius = self.Traits.SenseRadius ?? behavior.SenseRadius;
 
         // Nearest neighbour (horizontal distance) + crowd separation push, summed over every
         // crowding body so a creature is shoved out of a clump, not just away from its nearest.
@@ -66,7 +68,7 @@ public static class PerceptionBuilder
         // Nearest available food this creature can eat (horizontal distance). Always populated
         // so Forage can path to food even when it's outside immediate sense range.
         var (foodItem, foodDist) = nearestFood(self.Position, self.Diet);
-        float foodSenseRadius = behavior.FoodSenseRadius;
+        float foodSenseRadius = self.Traits.FoodSenseRadius ?? behavior.FoodSenseRadius;
         bool hasFood = foodItem is not null && foodDist <= foodSenseRadius;
         float foodProximity = hasFood ? 1f - foodDist / foodSenseRadius : 0f;
 
@@ -142,9 +144,10 @@ public static class PerceptionBuilder
 
         // Player threat: delegated to the injected flee strategy so the decision is
         // per-creature-type (sheep fear only when no food is offered; future deer may
-        // always flee, sloths may never care).
+        // always flee, sloths may never care). self.FleeStrategy (set by HerdSpawner from
+        // CreatureDef.FleeStrategy) overrides the Simulator-wide default when present.
         bool isPlayerThreat = hasPlayer
-            && fleeStrategy.IsPlayerThreat(playerHoldingFood, self.Needs.Affection);
+            && (self.FleeStrategy ?? fleeStrategy).IsPlayerThreat(playerHoldingFood, self.Needs.Affection);
 
         // Normalized separation time for SeekFlock consideration.
         float separationTime = MathF.Min(1f, self.SeparationTimer / behavior.SeekFlockDelay);

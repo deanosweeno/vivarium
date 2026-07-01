@@ -308,11 +308,17 @@ public sealed class Simulator : IFlockEnv
         _flockManager.Update(delta, Entities, Flocks, Behavior, GroundFloor);
         foreach (var flock in Flocks)
         {
+            // Members are kin (the flock only forms/joins within HerdKinThreshold), so the
+            // first member's resolved strategy represents the whole flock's species policy.
+            var flockFleeStrategy = flock.Members.Count > 0
+                ? flock.Members[0].FleeStrategy ?? FleeStrategy
+                : FleeStrategy;
+
             // Does any member of this flock see the player as a threat?
             // If so, the whole flock bolts — anchor moves away, members cohere.
             bool flockFlee = false;
             Vector3 playerPos = Vector3.Zero;
-            if (FleeStrategy.FlockFleesAsGroup)
+            if (flockFleeStrategy.FlockFleesAsGroup)
             {
                 foreach (var m in flock.Members)
                 {
@@ -324,7 +330,7 @@ public sealed class Simulator : IFlockEnv
                     }
                 }
             }
-            flock.AdvanceAnchor(delta, Arena, Rng, this, Behavior, FleeStrategy, flockFlee, playerPos);
+            flock.AdvanceAnchor(delta, Arena, Rng, this, Behavior, flockFleeStrategy, flockFlee, playerPos);
         }
 
         // --- Grazing: foraging creatures eat the food they've reached ---
