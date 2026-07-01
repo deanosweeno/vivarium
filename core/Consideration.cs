@@ -29,6 +29,9 @@ public enum InputKind
     /// <summary>1 when the player is a threat to this creature (strategy-owned decision), else 0.
     /// Replaces the old three-consideration gate (Proximity × Affection × HoldingFood).</summary>
     PlayerThreat,
+    /// <summary>1 when this isolated creature should be panicking about the player right now
+    /// (<see cref="SenseContext.PlayerPanic"/>), else 0. Used by <see cref="HoldWhile"/> latches.</summary>
+    PlayerPanic,
 }
 
 /// <summary>Which <see cref="Drives"/> weight scales a consideration (or none).</summary>
@@ -57,9 +60,13 @@ public sealed class Consideration
 
     /// <summary>Evaluate this consideration against a perceived context and the creature's drives.</summary>
     public float Evaluate(in SenseContext ctx, Drives drives)
-        => Curve.Evaluate(ReadInput(ctx)) * DriveFactor(drives);
+        => Curve.Evaluate(ReadInput(Input, ctx)) * DriveFactor(drives);
 
-    private float ReadInput(in SenseContext ctx) => Input switch
+    /// <summary>
+    /// Read a normalized [0,1] world input from a sense snapshot. Shared with
+    /// <see cref="HoldWhile"/> so latch conditions read the same inputs considerations do.
+    /// </summary>
+    internal static float ReadInput(InputKind input, in SenseContext ctx) => input switch
     {
         InputKind.Constant => 1f,
         InputKind.NeighborProximity => ctx.NeighborProximity,
@@ -73,6 +80,7 @@ public sealed class Consideration
         InputKind.Affection => ctx.Affection,
         InputKind.PlayerHoldingFood => ctx.PlayerHoldingFood ? 1f : 0f,
         InputKind.PlayerThreat => ctx.IsPlayerThreat ? 1f : 0f,
+        InputKind.PlayerPanic => ctx.PlayerPanic ? 1f : 0f,
         _ => 0f,
     };
 

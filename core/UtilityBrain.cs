@@ -44,7 +44,7 @@ public sealed class UtilityBrain
         _decisionTimer -= delta;
         if (Current is null || _decisionTimer <= 0)
         {
-            Decide(self.Drives, senses, rng, (float)Math.Max(delta, _config.DecisionInterval));
+            Decide(self, senses, rng, (float)Math.Max(delta, _config.DecisionInterval));
             _decisionTimer = _config.DecisionInterval;
         }
 
@@ -56,13 +56,17 @@ public sealed class UtilityBrain
     /// by stickiness: a challenger must beat current by SwitchMargin + remaining commitment,
     /// EXCEPT an emergency-capable action scoring past its threshold interrupts immediately.
     /// </summary>
-    private void Decide(Drives drives, in SenseContext senses, Random rng, float elapsed)
+    private void Decide(Creature self, in SenseContext senses, Random rng, float elapsed)
     {
+        var drives = self.Drives;
+        // Per-creature-type override (set by HerdSpawner from CreatureDef.FleeStrategy), falling
+        // back to the strategy this brain was constructed with.
+        var fleeStrategy = self.FleeStrategy ?? _fleeStrategy;
+
         // Unconditional flee override: when the strategy says this creature panics at
         // any cost, skip the entire scoring loop and immediately commit to AvoidPlayer.
         // Gated on !HasFlock so flock-level flee handles the group case separately.
-        if (_fleeStrategy.FleeOverridesAll
-            && senses.IsPlayerThreat && senses.HasPlayer && !senses.HasFlock)
+        if (fleeStrategy.FleeOverridesAll && senses.PlayerPanic)
         {
             var fleeAction = _config.Actions
                 .FirstOrDefault(a => a.Steering == SteeringKind.AvoidPlayer);
@@ -105,24 +109,11 @@ public sealed class UtilityBrain
         // Decay the current commitment over the elapsed time.
         _commitment = Math.Max(0f, _commitment - _config.CommitmentDecayPerSec * elapsed);
 
-        // Satiation latch: a creature mid-graze stays on Forage until it has eaten down to the
-        // satiation threshold, so Flock/Approach can't yank it off the food after a single bite
-        // (the oscillation we're fixing). Once Hunger drops to threshold it releases normally.
-        float hold = 0f;
-        if (Current.Steering == SteeringKind.Forage && senses.Hunger > _config.SatiationThreshold)
-            hold = 1f;
-        // Frolic latch: play until boredom is fully drained.
-        else if (Current.Steering == SteeringKind.Frolic && senses.Boredom > 0f)
-            hold = 1f;
-        // Rest latch: rest until fatigue is fully recovered.
-        else if (Current.Steering == SteeringKind.Rest && senses.Fatigue > 0f)
-            hold = 1f;
-        // FleePlayer latch: flee until the player is no longer a threat or the creature
-        // has rejoined a flock. The action's own Isolation gate already scores it 0 when
-        // HasFlock, so the latch also releases naturally once a flock is joined.
-        else if (Current.Steering == SteeringKind.AvoidPlayer
-            && senses.IsPlayerThreat && senses.HasPlayer && !senses.HasFlock)
-            hold = 1f;
+        // Anti-dither latch: the current action declares its own hold condition (data, not a
+        // SteeringKind switch) — e.g. Forage holds until eaten down to the satiation floor,
+        // Rest/Frolic hold until their need drains, FleePlayer holds while PlayerPanic. An
+        // action's own gates (e.g. FleePlayer's Isolation term) still release it naturally.
+        float hold = Current.HoldWhile is { } latch && latch.Active(senses) ? 1f : 0f;
 
         bool isEmergency = best.EmergencyCapable && bestScore >= best.EmergencyThreshold;
         bool beatsStickyCurrent = bestScore > currentScore + _config.SwitchMargin + _commitment + hold;
@@ -140,6 +131,7 @@ public sealed class UtilityBrain
     private Vector3 ComputeSteering(Creature self, in SenseContext senses, double delta, Random rng)
     {
         float maxSpeed = self.Traits.MaxSpeed;
+        var fleeStrategy = self.FleeStrategy ?? _fleeStrategy;
         switch (Current?.Steering)
         {
             case SteeringKind.Rest:
@@ -191,7 +183,7 @@ public sealed class UtilityBrain
                 // The strategy owns the formula — one knob (FleeSpeedMultiplier) controls
                 // both anchor and member flee speed.
                 float cap = self.Flock?.Current == FlockAction.FleePlayer
-                    ? _fleeStrategy.FlockFleeCap(maxSpeed)
+                    ? fleeStrategy.FlockFleeCap(maxSpeed)
                     : maxSpeed;
 
                 // Smooth cohesion: Standoff toward the anchor with no fixed offset, ramping
@@ -211,7 +203,11 @@ public sealed class UtilityBrain
                 // cohere and separate both cancel to zero. Reuses the shared Wander state so
                 // the drift is coherent with a later Wander stroll.
                 var drift = Wander(delta, cap, rng) * _config.FlockWanderFloor;
-                var blended = cohere + separate + drift;
+                // Light peer alignment (boids-style): nudge toward the average heading of nearby
+                // flock-mates, layered on top of anchor cohesion so the herd reads as members
+                // loosely following each other, not just independently orbiting one point.
+                var align = senses.NeighborHeading * cap * _config.FlockAlignmentWeight;
+                var blended = cohere + separate + drift + align;
                 return blended.LengthSquared() > cap * cap
                     ? Vector3.Normalize(blended) * cap
                     : blended;
@@ -252,8 +248,8 @@ public sealed class UtilityBrain
                 // for safety; otherwise flees directly away from the player.
                 if (!senses.HasPlayer)
                     return Wander(delta, maxSpeed, rng);
-                float speed = maxSpeed * _fleeStrategy.FleeSpeedMultiplier;
-                var target = _fleeStrategy.GetFleeTarget(
+                float speed = maxSpeed * fleeStrategy.FleeSpeedMultiplier;
+                var target = fleeStrategy.GetFleeTarget(
                     self.Position, senses.PlayerPosition,
                     senses.HasNearbyFlock ? senses.NearestFlockAnchor : null);
                 return target is Vector3 tgt
@@ -283,29 +279,29 @@ public sealed class UtilityBrain
     /// producing a darty zig-zag that reads as play. Owns its own timer/dir so it doesn't disturb
     /// the shared Wander state used by settled-herd drift.</summary>
     private Vector3 FrolicWander(double delta, float maxSpeed, Random rng)
-    {
-        _frolicTimer -= delta;
-        if (_frolicTimer <= 0 || _frolicDir.LengthSquared() < 1e-6f)
-        {
-            double angle = rng.NextDouble() * 2.0 * Math.PI;
-            _frolicDir = new Vector3((float)Math.Cos(angle), 0f, (float)Math.Sin(angle));
-            _frolicTimer = _config.FrolicDwellMin
-                + rng.NextDouble() * (_config.FrolicDwellMax - _config.FrolicDwellMin);
-        }
-        return _frolicDir * maxSpeed;
-    }
+        => Roam(ref _frolicDir, ref _frolicTimer, delta, maxSpeed, rng, _config.FrolicDwellMin, _config.FrolicDwellMax);
 
     /// <summary>Relaxed roaming: re-roll a random XZ direction periodically, move at full speed.</summary>
     private Vector3 Wander(double delta, float maxSpeed, Random rng)
+        => Roam(ref _wanderDir, ref _wanderTimer, delta, maxSpeed, rng, _config.WanderDwellMin, _config.WanderDwellMax);
+
+    /// <summary>
+    /// Shared roam primitive: holds a random XZ direction for a randomized dwell in
+    /// [dwellMin, dwellMax] seconds, re-rolling both when the dwell expires. Wander and
+    /// FrolicWander are the same pattern at different dwell timescales; each keeps its own
+    /// (dir, timer) pair so a wandering creature's stroll direction doesn't reset mid-frolic.
+    /// </summary>
+    private static Vector3 Roam(
+        ref Vector3 dir, ref double timer, double delta, float maxSpeed, Random rng,
+        float dwellMin, float dwellMax)
     {
-        _wanderTimer -= delta;
-        if (_wanderTimer <= 0 || _wanderDir.LengthSquared() < 1e-6f)
+        timer -= delta;
+        if (timer <= 0 || dir.LengthSquared() < 1e-6f)
         {
             double angle = rng.NextDouble() * 2.0 * Math.PI;
-            _wanderDir = new Vector3((float)Math.Cos(angle), 0f, (float)Math.Sin(angle));
-            _wanderTimer = _config.WanderDwellMin
-                + rng.NextDouble() * (_config.WanderDwellMax - _config.WanderDwellMin);
+            dir = new Vector3((float)Math.Cos(angle), 0f, (float)Math.Sin(angle));
+            timer = dwellMin + rng.NextDouble() * (dwellMax - dwellMin);
         }
-        return _wanderDir * maxSpeed;
+        return dir * maxSpeed;
     }
 }

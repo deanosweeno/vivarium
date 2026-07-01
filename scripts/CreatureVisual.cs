@@ -38,10 +38,18 @@ public partial class CreatureVisual : Node3D
     private int _reactionStamp; // last consumed reaction stamp, to detect a fresh tell
     private float _reactionT;   // remaining reaction-bounce time (seconds)
     private float _reactionStrength;
+    private ReactionKind _reactionKind; // which tell is currently playing
+
+    private float _tripTimer;   // seconds until the next stumble is eligible while fleeing
+    private float _tripT;       // remaining stumble-dip time (seconds)
 
     private const float RockFreq = 3f;      // side-to-side rocks per second
     private const float RockAngle = 0.26f;  // peak roll angle in radians (~15°)
     private const float ReactionDuration = 0.5f; // how long a happy bounce plays
+    private const float TripDuration = 0.35f;    // how long a stumble dip plays
+    private const float TripDipAmount = 0.09f;   // how deep the stumble dip goes
+    private const float TripIntervalMin = 4f;    // min seconds between stumbles while fleeing
+    private const float TripIntervalMax = 8f;    // max seconds between stumbles while fleeing
 
     public void Init(Creature model)
     {
@@ -242,6 +250,36 @@ public partial class CreatureVisual : Node3D
 
         UpdateBubble(dt);
         UpdateReaction(dt);
+        UpdateTrip(dt, moveFactor);
+    }
+
+    /// <summary>
+    /// Rare stumble-dip while panicked at speed (docs/features/art-and-animation.md's
+    /// "trip-and-faceplant" beat, in miniature): a brief downward dip, sparse enough to read as an
+    /// occasional endearing clumsiness rather than a broken gait. Purely cosmetic — reads
+    /// <see cref="Creature.Brain"/>'s current action name and consumes engine time only; no new
+    /// core rule, no feedback into the sim.
+    /// </summary>
+    private void UpdateTrip(float dt, float moveFactor)
+    {
+        bool fleeing = _model.Brain?.CurrentName == "FleePlayer" && moveFactor > 0.8f;
+        if (fleeing)
+        {
+            _tripTimer -= dt;
+            if (_tripTimer <= 0f)
+            {
+                _tripT = TripDuration;
+                // Stagger per-instance so a fleeing herd doesn't all stumble in lockstep.
+                float jitter = (GetInstanceId() % 1000) / 1000f;
+                _tripTimer = TripIntervalMin + jitter * (TripIntervalMax - TripIntervalMin);
+            }
+        }
+
+        if (_tripT <= 0f) return;
+        _tripT = Mathf.Max(0f, _tripT - dt);
+        float u = _tripT / TripDuration;
+        float env = Mathf.Sin(u * Mathf.Pi); // 0 → 1 → 0, same half-sine envelope as UpdateReaction
+        Position -= new Vector3(0f, env * TripDipAmount, 0f);
     }
 
     /// <summary>Show/hide the thought-bubble from the model's current broadcast, with a gentle
@@ -263,15 +301,17 @@ public partial class CreatureVisual : Node3D
         _bubble.Position = new Vector3(0f, _bubbleY + 0.4f + bob, 0f);
     }
 
-    /// <summary>Play a brief happy bounce when the model reports a fresh reaction. The pop scales
-    /// with the interaction's flavor-match strength, so a well-matched verb reads bigger — the
-    /// channel that teaches the player a creature's temperament. Decays on its own.</summary>
+    /// <summary>Play a brief reaction tell when the model reports a fresh one. The tell's shape
+    /// depends on <see cref="ReactionKind"/> (a happy pop, a muted dislike, a startled recoil, a
+    /// curious tilt, a content settle); its size scales with the reaction's Strength, so a
+    /// well-matched interaction (or a sharper threat) reads bigger. Decays on its own.</summary>
     private void UpdateReaction(float dt)
     {
         var r = _model.LastReaction;
-        if (r.Kind == ReactionKind.Happy && r.Stamp != _reactionStamp)
+        if (r.Kind != ReactionKind.None && r.Stamp != _reactionStamp)
         {
             _reactionStamp = r.Stamp;
+            _reactionKind = r.Kind;
             _reactionT = ReactionDuration;
             // Even a mismatched pick gives a small nod; a perfect match gives a full pop.
             _reactionStrength = 0.3f + 0.7f * r.Strength;
@@ -283,10 +323,41 @@ public partial class CreatureVisual : Node3D
         // Half-sine envelope over the duration: rise then settle.
         float u = _reactionT / ReactionDuration;          // 1 → 0
         float env = Mathf.Sin(u * Mathf.Pi);              // 0 → 1 → 0
-        float pop = env * 0.25f * _reactionStrength;
-        Scale = new Vector3(1f + pop, 1f + pop * 1.4f, 1f + pop);
-        // A little hop on top of the position the sync already set.
-        Position += new Vector3(0f, env * 0.18f * _reactionStrength, 0f);
+
+        switch (_reactionKind)
+        {
+            case ReactionKind.Happy:
+            {
+                float pop = env * 0.25f * _reactionStrength;
+                Scale = new Vector3(1f + pop, 1f + pop * 1.4f, 1f + pop);
+                Position += new Vector3(0f, env * 0.18f * _reactionStrength, 0f); // a little hop
+                break;
+            }
+            case ReactionKind.Content:
+            {
+                // Gentle settle: a small, slow scale bump — no hop.
+                float pop = env * 0.12f * _reactionStrength;
+                Scale = new Vector3(1f + pop, 1f + pop * 0.6f, 1f + pop);
+                break;
+            }
+            case ReactionKind.Curious:
+            {
+                // Head-tilt read as a small whole-body roll (Rotation.Z is otherwise unused —
+                // the frolic rock uses X, facing heading uses Y).
+                float tilt = env * 0.15f * _reactionStrength;
+                Rotation += new Vector3(0f, 0f, tilt);
+                break;
+            }
+            case ReactionKind.Startled:
+            case ReactionKind.Dislike:
+            {
+                // Recoil: shrink and dip back — the mirror of the happy pop/hop.
+                float shrink = env * 0.18f * _reactionStrength;
+                Scale = new Vector3(1f - shrink, 1f - shrink * 1.2f, 1f - shrink);
+                Position -= new Vector3(0f, env * 0.05f * _reactionStrength, 0f);
+                break;
+            }
+        }
     }
 
     private static float LerpAngle(float from, float to, float t)

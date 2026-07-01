@@ -34,6 +34,14 @@ public readonly struct SenseContext
     /// </summary>
     public Vector3 SeparationPush { get; init; }
 
+    /// <summary>
+    /// Average heading (unit XZ vector) of moving neighbors within sense radius, or zero when no
+    /// neighbor is moving. Blended into Flock steering as a light peer-alignment term (the "boids"
+    /// alignment rule) so a herd reads as members loosely matching each other's direction, not just
+    /// orbiting a shared anchor point.
+    /// </summary>
+    public Vector3 NeighborHeading { get; init; }
+
     /// <summary>Whether this creature belongs to a non-empty <see cref="Flock"/> to cohere toward.</summary>
     public bool HasFlock { get; init; }
 
@@ -95,6 +103,14 @@ public readonly struct SenseContext
     /// <summary>Whether the player is currently a threat to this creature, as decided by the
     /// injected <see cref="IFleeStrategy"/>. 1 = threat, 0 = safe (holding food, bonded, etc.).</summary>
     public bool IsPlayerThreat { get; init; }
+
+    /// <summary>
+    /// True when this creature, alone (not in a flock), should be panicking about the player right
+    /// now: the player is sensed, is a threat, and no flock is around to flee as a group instead.
+    /// Unifies the <c>IsPlayerThreat &amp;&amp; HasPlayer &amp;&amp; !HasFlock</c> predicate that used
+    /// to be duplicated at the brain override, the FleePlayer latch, and the flock-flee loop.
+    /// </summary>
+    public bool PlayerPanic => IsPlayerThreat && HasPlayer && !HasFlock;
 
     // Needs are copied in so the brain reads everything from one struct.
     public float Hunger { get; init; }

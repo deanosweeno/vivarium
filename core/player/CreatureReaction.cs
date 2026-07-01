@@ -14,6 +14,20 @@ public enum ReactionKind
 
     /// <summary>The interaction landed well — play a positive tell scaled by Strength.</summary>
     Happy,
+
+    /// <summary>The player just became a threat (panic onset) — a startled flinch/recoil tell.</summary>
+    Startled,
+
+    /// <summary>The brain just committed to Approach/SeekFlock out of curiosity — a small
+    /// head-tilt/look tell.</summary>
+    Curious,
+
+    /// <summary>A held need (Rest/Forage) was just satisfied — a settled, relaxed tell.</summary>
+    Content,
+
+    /// <summary>A flavor-mismatched interaction landed (still helped — see
+    /// <see cref="FlavorMatch"/>'s bonus-never-punishment floor) — a small, muted tell.</summary>
+    Dislike,
 }
 
 /// <summary>
@@ -41,6 +55,39 @@ public readonly struct CreatureReaction
     {
         Kind = ReactionKind.Happy,
         Strength = Math.Clamp(strength, 0f, 1f),
+        Stamp = previous.Stamp + 1,
+    };
+
+    /// <summary>A fresh Dislike reaction of the given (muted) strength — a mismatched interaction
+    /// that still helped, per <see cref="FlavorMatch"/>'s floor.</summary>
+    public static CreatureReaction Dislike(float strength, CreatureReaction previous) => new()
+    {
+        Kind = ReactionKind.Dislike,
+        Strength = Math.Clamp(strength, 0f, 1f),
+        Stamp = previous.Stamp + 1,
+    };
+
+    /// <summary>A fresh Startled reaction — player-threat onset.</summary>
+    public static CreatureReaction Startled(CreatureReaction previous) => new()
+    {
+        Kind = ReactionKind.Startled,
+        Strength = 1f,
+        Stamp = previous.Stamp + 1,
+    };
+
+    /// <summary>A fresh Curious reaction — the brain just committed to Approach/SeekFlock.</summary>
+    public static CreatureReaction Curious(CreatureReaction previous) => new()
+    {
+        Kind = ReactionKind.Curious,
+        Strength = 0.6f,
+        Stamp = previous.Stamp + 1,
+    };
+
+    /// <summary>A fresh Content reaction — a held need (Rest/Forage) was just satisfied.</summary>
+    public static CreatureReaction Content(CreatureReaction previous) => new()
+    {
+        Kind = ReactionKind.Content,
+        Strength = 0.7f,
         Stamp = previous.Stamp + 1,
     };
 }

@@ -26,7 +26,9 @@ public static class PerceptionBuilder
         IFleeStrategy fleeStrategy,
         Func<Vector3, HashSet<string>?, (FoodItem? Item, float Dist)> nearestFood)
     {
-        float radius = behavior.SenseRadius;
+        // Per-creature-type override (CreatureTraits.SenseRadius, set from creatures.json) beats
+        // the shared config default, so a keen-eyed vs. dull creature perceives differently.
+        float radius = self.Traits.SenseRadius ?? behavior.SenseRadius;
 
         // Nearest neighbour (horizontal distance) + crowd separation push, summed over every
         // crowding body so a creature is shoved out of a clump, not just away from its nearest.
@@ -34,6 +36,7 @@ public static class PerceptionBuilder
         float nearestDist = float.MaxValue;
         float personalSpace = self.Traits.Radius * behavior.PersonalSpaceRadii;
         var separationPush = Vector3.Zero;
+        var headingSum = Vector3.Zero;
         foreach (var other in entities)
         {
             if (ReferenceEquals(other, self)) continue;
@@ -51,10 +54,18 @@ public static class PerceptionBuilder
             // push). Skip exact overlap — ResolveEntityCollisions handles that.
             if (dist < personalSpace && dist > 1e-4f)
                 separationPush += new Vector3(-d.X, 0f, -d.Z) / dist * (1f - dist / personalSpace);
+            // Peer-alignment sample: sum unit headings of moving neighbors within sense radius.
+            if (dist <= radius)
+            {
+                var vel = new Vector3(other.Velocity.X, 0f, other.Velocity.Z);
+                if (vel.LengthSquared() > 1e-4f)
+                    headingSum += Vector3.Normalize(vel);
+            }
         }
 
         bool hasNeighbor = nearest is not null && nearestDist <= radius;
         float proximity = hasNeighbor ? 1f - nearestDist / radius : 0f;
+        Vector3 neighborHeading = headingSum.LengthSquared() > 1e-6f ? Vector3.Normalize(headingSum) : Vector3.Zero;
 
         // Flock cohesion targets the creature's flock anchor (an explicit group entity managed by
         // the flock system), not a live kin centroid — the herd moves as one circle around it.
@@ -66,7 +77,7 @@ public static class PerceptionBuilder
         // Nearest available food this creature can eat (horizontal distance). Always populated
         // so Forage can path to food even when it's outside immediate sense range.
         var (foodItem, foodDist) = nearestFood(self.Position, self.Diet);
-        float foodSenseRadius = behavior.FoodSenseRadius;
+        float foodSenseRadius = self.Traits.FoodSenseRadius ?? behavior.FoodSenseRadius;
         bool hasFood = foodItem is not null && foodDist <= foodSenseRadius;
         float foodProximity = hasFood ? 1f - foodDist / foodSenseRadius : 0f;
 
@@ -142,9 +153,10 @@ public static class PerceptionBuilder
 
         // Player threat: delegated to the injected flee strategy so the decision is
         // per-creature-type (sheep fear only when no food is offered; future deer may
-        // always flee, sloths may never care).
+        // always flee, sloths may never care). self.FleeStrategy (set by HerdSpawner from
+        // CreatureDef.FleeStrategy) overrides the Simulator-wide default when present.
         bool isPlayerThreat = hasPlayer
-            && fleeStrategy.IsPlayerThreat(playerHoldingFood, self.Needs.Affection);
+            && (self.FleeStrategy ?? fleeStrategy).IsPlayerThreat(playerHoldingFood, self.Needs.Affection);
 
         // Normalized separation time for SeekFlock consideration.
         float separationTime = MathF.Min(1f, self.SeparationTimer / behavior.SeekFlockDelay);
@@ -176,6 +188,7 @@ public static class PerceptionBuilder
             NeighborPosition = nearest?.Position ?? self.Position,
             NeighborProximity = proximity,
             SeparationPush = separationPush,
+            NeighborHeading = neighborHeading,
             HasFlock = hasFlock,
             FlockAnchor = flockAnchor,
             FlockRadius = flockRadius,

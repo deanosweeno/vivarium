@@ -21,6 +21,8 @@ public sealed class PlayInteraction : IPlayerInteraction
         // Energetic flavor: match = PlayCuddle (1 = loves lively play).
         float match = target.Drives.PlayCuddle;
         n.Affection += ctx.Config.PlayBond * FlavorMatch.Multiplier(match, ctx.Config);
-        target.LastReaction = CreatureReaction.Happy(match, target.LastReaction);
+        target.LastReaction = match < 0.5f
+            ? CreatureReaction.Dislike(1f - match, target.LastReaction)
+            : CreatureReaction.Happy(match, target.LastReaction);
     }
 }

@@ -84,6 +84,19 @@ public sealed class CreatureTraits
     public float GrazeHungerThreshold { get; set; } = 0.3f;
 
     /// <summary>
+    /// How far this creature senses neighbors/terrain, in arena units, or null to use the
+    /// shared <see cref="BrainConfig.SenseRadius"/>. Lets a keen-eyed vs. dull creature type
+    /// perceive differently without a global config change.
+    /// </summary>
+    public float? SenseRadius { get; set; }
+
+    /// <summary>
+    /// How far this creature senses food, in arena units, or null to use the shared
+    /// <see cref="BrainConfig.FoodSenseRadius"/>.
+    /// </summary>
+    public float? FoodSenseRadius { get; set; }
+
+    /// <summary>
     /// Convenience accessor for a new traits instance with all defaults.
     /// </summary>
     public static CreatureTraits Default => new();
@@ -107,6 +120,8 @@ public sealed class CreatureTraits
         FatigueRecoverPerSec = other.FatigueRecoverPerSec;
         Diet = other.Diet;
         GrazeHungerThreshold = other.GrazeHungerThreshold;
+        SenseRadius = other.SenseRadius;
+        FoodSenseRadius = other.FoodSenseRadius;
     }
 
     public CreatureTraits() { }

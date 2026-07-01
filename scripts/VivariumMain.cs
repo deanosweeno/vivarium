@@ -162,12 +162,7 @@ public partial class VivariumMain : Node3D
         // --- Sheep herds: all stats/drives/herd config are data-driven (assets/creatures.json) ---
         if (mapView?.Map != null && sheepDef?.Herd != null)
         {
-            HerdSpawner.SpawnHerds(
-                _sim,
-                new BlobFactory(_sim.Behavior, _sim.FleeStrategy, _sim.Rng),
-                sheepDef,
-                mapView.Map,
-                _sim.Rng);
+            HerdSpawner.SpawnHerds(_sim, sheepDef, mapView.Map, _sim.Rng);
         }
 
         // Spawn the player avatar at the arena center and point the follow-camera at it.

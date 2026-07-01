@@ -82,6 +82,8 @@ public sealed class CreatureCatalog
                 Traits = BuildTraits(dto.Traits),
                 Drives = BuildDrives(dto.Drives),
                 Herd = BuildHerd(dto.Herd),
+                FleeStrategy = dto.FleeStrategy,
+                ActionSet = dto.ActionSet,
             };
         }
 
@@ -131,6 +133,8 @@ public sealed class CreatureCatalog
         if (d.FatigueRecoverPerSec is { } fr) t.FatigueRecoverPerSec = fr;
         if (d.Diet is { } diet) t.Diet = new HashSet<string>(diet, StringComparer.OrdinalIgnoreCase);
         if (d.GrazeHungerThreshold is { } gh) t.GrazeHungerThreshold = gh;
+        if (d.SenseRadius is { } sr) t.SenseRadius = sr;
+        if (d.FoodSenseRadius is { } fsr) t.FoodSenseRadius = fsr;
         return t;
     }
 
@@ -174,6 +178,8 @@ public sealed class CreatureCatalog
         public TraitsDto? Traits { get; set; }
         public DrivesDto? Drives { get; set; }
         public HerdDto? Herd { get; set; }
+        public string? FleeStrategy { get; set; }
+        public string? ActionSet { get; set; }
     }
 
     private sealed class TraitsDto
@@ -191,6 +197,8 @@ public sealed class CreatureCatalog
         public float? FatigueRecoverPerSec { get; set; }
         public List<string>? Diet { get; set; }
         public float? GrazeHungerThreshold { get; set; }
+        public float? SenseRadius { get; set; }
+        public float? FoodSenseRadius { get; set; }
     }
 
     private sealed class DrivesDto

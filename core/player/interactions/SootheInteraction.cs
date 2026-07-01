@@ -21,6 +21,8 @@ public sealed class SootheInteraction : IPlayerInteraction
         // Calm flavor: match = 1 - PlayCuddle (1 = loves cuddling).
         float match = 1f - target.Drives.PlayCuddle;
         n.Affection += ctx.Config.SootheBond * FlavorMatch.Multiplier(match, ctx.Config);
-        target.LastReaction = CreatureReaction.Happy(match, target.LastReaction);
+        target.LastReaction = match < 0.5f
+            ? CreatureReaction.Dislike(1f - match, target.LastReaction)
+            : CreatureReaction.Happy(match, target.LastReaction);
     }
 }

@@ -74,11 +74,15 @@ beats** that give creatures personality and unpredictability:
 
 - **Trip-and-faceplant** — when fleeing in fear at speed, creatures can stumble on
   terrain features (rocks, roots, ledges), triggering a brief ragdoll collapse + recovery.
-  Makes a panicked escape feel clumsy and endearing.
+  Makes a panicked escape feel clumsy and endearing. *Implemented in miniature:*
+  `CreatureVisual.UpdateTrip` plays a rare stumble-dip while fleeing at speed — no
+  terrain-feature detection or ragdoll physics yet, just a sparse cosmetic dip.
 - **Slip on slopes / wet ground** — weather + terrain can make surfaces "slick,"
   causing legs to lose traction mid-stride and the creature to slide or wipe out.
 - **Startle-flail** — a sudden stimulus (player appears, loud noise) triggers a brief
-  flinch / backwards stumble before the AI decides to flee or investigate.
+  flinch / backwards stumble before the AI decides to flee or investigate. *Implemented
+  in miniature:* the `ReactionKind.Startled` tell (a recoil/shrink) fires the moment
+  `SenseContext.PlayerPanic` turns on, before/alongside the flee steering kicking in.
 - **Play-dead / dramatic collapse** — some personality templates might overreact to
   minor threats with an exaggerated flop, adding comedic variety.
 - **Recovery wiggle** — after a fall, a short scramble-to-feet animation (legs kicking
@@ -94,7 +98,17 @@ seconds is broken, not charming.
 steady), terrain-trip threshold.
 
 ## Cross-system hooks
-- **Animation ↔ AI:** gaze/look-at and gait speed read Utility-AI state & velocity.
+- **Animation ↔ AI:** gaze/look-at and gait speed read Utility-AI state & velocity. See
+  [behavioral-ai.md](behavioral-ai.md) for the decision side. Implemented, cosmetic-only
+  consumers of core state (no new core rules):
+  - **Gaze/look-at** — `CreatureVisual` yaws the head toward `Creature.FocusPosition`
+    (set by the Simulator from the brain's current steering target).
+  - **Reaction tells** — `CreatureVisual.UpdateReaction` branches its bounce/recoil/tilt/
+    settle tell per `ReactionKind` (Happy/Dislike/Startled/Curious/Content), covering the
+    "startle-flail" beat below as a lightweight recoil rather than a full ragdoll.
+  - **Trip stumble** — `CreatureVisual.UpdateTrip` plays a rare, per-instance-staggered
+    dip while the brain's current action is `FleePlayer` at speed — a miniature version
+    of the trip-and-faceplant beat below (a dip, not a ragdoll collapse).
 - **Genes ↔ rig:** PartGene `mesh`/`visualMods` + bone-scale come from the
   [part data model](part-data-model.md); organ parts have no mesh (skip assembly).
 - **Lighting ↔ time/weather:** toon shader should respond to day/night & weather

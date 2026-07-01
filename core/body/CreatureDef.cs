@@ -24,4 +24,16 @@ public sealed class CreatureDef
 
     /// <summary>Herd-spawn config, or null when this type does not spawn in herds.</summary>
     public HerdSpawnConfig? Herd { get; init; }
+
+    /// <summary>
+    /// Name of this type's flee-from-player policy, resolved via <see cref="FleeStrategyRegistry"/>
+    /// (e.g. "sheep", "never", "always"). Null = use the spawner's default strategy.
+    /// </summary>
+    public string? FleeStrategy { get; init; }
+
+    /// <summary>
+    /// Name of this type's action table, resolved via <see cref="ActionSetCatalog"/>
+    /// (e.g. "herbivore"). Null = use the brain config's default <see cref="BrainConfig.Actions"/>.
+    /// </summary>
+    public string? ActionSet { get; init; }
 }
