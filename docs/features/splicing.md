@@ -15,8 +15,14 @@ Built piece-by-piece in `core/genetics/`. ✅ done · 🚧 partial · ⬜ not st
   first-specialty-replaces-at-locus, clamp, envelope-driven `BodyPlan`. **Deferred:** §4 multi-pin
   conflict (currently last-wins), §5/§6 stack & multiplicity (currently stack), §6 mutation/fusion,
   §2 seeded jitter, and non-scalar traits (CanFly/Diet/PreferredBiomes — see `BaseGene` TODO).
-- ⬜ **§3** gameplay loop (harvest/pool/craft/splice) · ⬜ **§4–6** collision resolution ·
-  ⬜ **§7** splice budget as player progression · ⬜ **§8** `Genetics.Similarity` rewire + spawn integration.
+- ✅ **§3 gameplay loop** — `GeneCatalog` (+ `assets/genes.json`, seeded sprout/sheep genes),
+  `HarvestTable.Roll` (seeded rarity-weighted drops, missing tiers redistribute weight),
+  `GenePool` (collect/de-dupe by id, `HasFullSet`/`Missing` craft gate, JSON save/load),
+  `Craft.CraftBase` (gated on the full Common set, still def-derived — see its `// TODO §3`),
+  `Splicer.Splice` (named seam over `Genome.Create`), `GeneticsConfig` (drop odds, min/max
+  drops, splice budget — all data, not scattered constants). Pure `core/`, no live-creature wiring.
+- ⬜ **§4–6** collision resolution · ⬜ **§7** splice budget as player progression ·
+  ⬜ **§8** `Genetics.Similarity` rewire + spawn integration.
 
 How the player **harvests genes** from animals and **splices** them into hybrids. A genome is
 a composition-first flat list of genes; an `Expressor` turns a genome into the existing

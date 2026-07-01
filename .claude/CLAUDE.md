@@ -147,6 +147,13 @@ core/
   body/CreatureCatalog.cs — Creature defs (body plan + traits/drives/herd) from creatures.json
   body/CreatureDef.cs — Full per-type definition: BodyPlan + optional sim rules
   HerdSpawner.cs      — Spawns herds from a CreatureDef (data-driven)
+  genetics/Gene.cs, Genome.cs, Expressor.cs — §1/§2 gene model + genotype→Phenotype (see docs/features/splicing.md)
+  genetics/GeneCatalog.cs — Harvestable genes per species from assets/genes.json (§3)
+  genetics/HarvestTable.cs — Seeded rarity-weighted drop roll (§3)
+  genetics/GenePool.cs — Collected genes; HasFullSet/Missing craft gate; JSON save/load (§3)
+  genetics/Craft.cs   — Craft a species' Base gene once its full Common set is collected (§3)
+  genetics/Splicer.cs — Combine a Base + specialty genes into a Genome (§3)
+  genetics/GeneticsConfig.cs — §3 tunables: drop odds, min/max drops, splice budget
 
 scripts/
   VivariumMain.cs     — Game entry point: creates Simulator, wires up MapView
@@ -160,6 +167,7 @@ assets/
   biomes.json         — Biome definitions (height ranges, terrain ratios, colors)
   foods.json          — Food item catalog
   creatures.json      — Creature catalog: body plan + traits/drives/herd config per type
+  genes.json          — Harvestable gene catalog per species (§3 harvest/craft source)
   default_env.tres    — DefaultEnvironment with sky, ambient light
 ```
 

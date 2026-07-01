@@ -1,0 +1,27 @@
+[
+  { "Id": "sprout.mat.core",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "sprout" },
+  { "Id": "sprout.mat.head",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "sprout" },
+  { "Id": "sprout.mat.eyes",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "sprout" },
+  { "Id": "sprout.mat.legs",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "sprout" },
+  { "Id": "sprout.mat.tail",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "sprout" },
+  {
+    "Id": "spec.sprout.hardy", "Kind": "Specialty", "Rarity": "Rare", "Tier": 1, "Visible": true, "SourceSpecies": "sprout",
+    "Pins": [{ "Key": "FatigueRecoverPerSec", "Value": 0.06 }]
+  },
+
+  { "Id": "sheep.mat.core",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "sheep" },
+  { "Id": "sheep.mat.head",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "sheep" },
+  { "Id": "sheep.mat.eyes",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "sheep" },
+  { "Id": "sheep.mat.legs",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "sheep" },
+  { "Id": "sheep.mat.tail",  "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "sheep" },
+  { "Id": "sheep.mat.horns", "Kind": "Specialty", "Rarity": "Common", "Tier": 0, "Visible": false, "SourceSpecies": "sheep" },
+  {
+    "Id": "spec.sheep.thickwool", "Kind": "Specialty", "Rarity": "Rare", "Tier": 1, "Visible": true, "SourceSpecies": "sheep",
+    "Pins": [{ "Key": "FatigueRecoverPerSec", "Value": 0.05 }]
+  },
+  {
+    "Id": "spec.sheep.goldenfleece", "Kind": "Specialty", "Rarity": "Legendary", "Tier": 2, "Visible": true, "SourceSpecies": "sheep",
+    "Parts": [{ "Slot": "Surface", "Shape": "Box", "Size": [0.9, 0.82, 1.0], "Socket": [0.0, 0.52, 0.0], "Tint": "#F4D35E", "Role": "Static" }],
+    "Pins": [{ "Key": "Sociability", "Value": 1.0 }]
+  }
+]
