@@ -42,6 +42,17 @@ public partial class CameraOrbit : Camera3D
     /// <summary>Current horizontal orbit angle (radians), so callers can make input camera-relative.</summary>
     public float Yaw => _yaw;
 
+    /// <summary>
+    /// Orbit distance from the target. Setting it seeds both the actual and desired distance so a
+    /// caller can frame a larger scene before the node enters the tree (e.g. the dev harness sizes
+    /// this to its map). Clamped by the wheel-zoom limits during normal use.
+    /// </summary>
+    public float Distance
+    {
+        get => _distance;
+        set { _distance = value; _desiredDistance = value; }
+    }
+
     public override void _Ready()
     {
         _desiredTarget = _target;

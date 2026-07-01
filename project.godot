@@ -15,8 +15,12 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="Vivarium"
-run/main_scene="res://scenes/vivarium.tscn"
+run/main_scene="res://devtools/harness/DevHarness.tscn"
 config/features=PackedStringArray("4.7", "C#", "Forward Plus")
+
+[autoload]
+
+McpInteractionServer="*res://mcp_interaction_server.gd"
 
 [dotnet]
 
@@ -63,27 +67,3 @@ cam_rotate_right={
 
 renderer/rendering_method.mobile="forward_plus"
 environment/defaults/default_environment="res://assets/default_env.tres"
-
-[autoload]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

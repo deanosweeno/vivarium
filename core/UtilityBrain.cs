@@ -128,6 +128,27 @@ public sealed class UtilityBrain
         _commitment = _config.CommitmentBonus;
     }
 
+    /// <summary>
+    /// Dev/QA seam: force the brain into the named action immediately, bypassing scoring, and
+    /// hold it for one decision interval. Looks the action up in the config's action table by
+    /// <see cref="BehaviorAction.Name"/> and routes through the normal <see cref="Commit"/> latch.
+    /// Returns false (no-op) when no action carries that name. Not used by the shipped game —
+    /// exists only for the interactive harness's force-action buttons.
+    /// </summary>
+    public bool ForceAction(string name)
+    {
+        foreach (var action in _config.Actions)
+        {
+            if (action.Name == name)
+            {
+                Commit(action);
+                _decisionTimer = _config.DecisionInterval;
+                return true;
+            }
+        }
+        return false;
+    }
+
     private Vector3 ComputeSteering(Creature self, in SenseContext senses, double delta, Random rng)
     {
         float maxSpeed = self.Traits.MaxSpeed;

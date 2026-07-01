@@ -560,4 +560,28 @@ public class BehaviorTests
 
         Assert.True(blob.Needs.Fatigue > 0f, $"fatigue should accrue while moving, was {blob.Needs.Fatigue}");
     }
+
+    // ---------- ForceAction (dev/QA harness seam) ----------
+
+    [Fact]
+    public void ForceAction_CommitsNamedAction()
+    {
+        var brain = new UtilityBrain(new BehaviorConfig());
+
+        Assert.True(brain.ForceAction("Frolic"));
+        Assert.Equal("Frolic", brain.CurrentName);
+
+        Assert.True(brain.ForceAction("Rest"));
+        Assert.Equal("Rest", brain.CurrentName);
+    }
+
+    [Fact]
+    public void ForceAction_UnknownName_IsNoOp()
+    {
+        var brain = new UtilityBrain(new BehaviorConfig());
+        brain.ForceAction("Rest");
+
+        Assert.False(brain.ForceAction("NotAnAction"));
+        Assert.Equal("Rest", brain.CurrentName); // unchanged
+    }
 }

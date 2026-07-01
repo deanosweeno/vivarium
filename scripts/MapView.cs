@@ -41,8 +41,26 @@ public partial class MapView : Node3D
         if (Map is null)
             return;
 
-        BuildTerrainMesh(Map);
-        BuildWaterPlane(Map);
+        Rebuild(Map);
+    }
+
+    /// <summary>
+    /// (Re)build the terrain surface + water plane from a <see cref="MapData"/>. Idempotent —
+    /// clears any previously built "TerrainSurface"/"WaterSurface" children first, so it can be
+    /// called repeatedly. <see cref="_Ready"/> calls it once with the baked map; the dev harness
+    /// calls it again after regenerating terrain with a new seed.
+    /// </summary>
+    public void Rebuild(MapData map)
+    {
+        Map = map;
+        foreach (var child in GetChildren())
+        {
+            if (child is MeshInstance3D mi && (mi.Name == "TerrainSurface" || mi.Name == "WaterSurface"))
+                mi.QueueFree();
+        }
+
+        BuildTerrainMesh(map);
+        BuildWaterPlane(map);
     }
 
     /// <summary>
