@@ -199,12 +199,10 @@ public sealed class UtilityBrain
                 if (!senses.HasFlock)
                     return Wander(delta, maxSpeed, rng);
 
-                // When the flock is fleeing the player, boost to gallop-panic speed so
+                // When the flock is fleeing the player, boost to sprint speed so
                 // members match the fleeing anchor and the herd stays a tight ball.
-                // The strategy owns the formula — one knob (FleeSpeedMultiplier) controls
-                // both anchor and member flee speed.
                 float cap = self.Flock?.Current == FlockAction.FleePlayer
-                    ? fleeStrategy.FlockFleeCap(maxSpeed)
+                    ? self.Traits.SprintSpeed
                     : maxSpeed;
 
                 // Smooth cohesion: Standoff toward the anchor with no fixed offset, ramping
@@ -264,12 +262,13 @@ public sealed class UtilityBrain
 
             case SteeringKind.AvoidPlayer:
             {
-                // Panic flee: gallop away from the player at strategy-driven speed.
+                // Panic flee: sprint away from the player. SprintSpeed > MaxSpeed
+                // triggers the implicit sprint signal in SteeringLocomotion.
                 // An isolated creature with a kin flock in range flees toward that flock
                 // for safety; otherwise flees directly away from the player.
                 if (!senses.HasPlayer)
                     return Wander(delta, maxSpeed, rng);
-                float speed = maxSpeed * fleeStrategy.FleeSpeedMultiplier;
+                float speed = self.Traits.SprintSpeed;
                 var target = fleeStrategy.GetFleeTarget(
                     self.Position, senses.PlayerPosition,
                     senses.HasNearbyFlock ? senses.NearestFlockAnchor : null);

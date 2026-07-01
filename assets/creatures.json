@@ -40,6 +40,8 @@
       "JumpHeight": 2.2,
       "TurnRate": 1.8,
       "Acceleration": 1.6,
+      "SprintSpeed": 1.2,
+      "SprintAcceleration": 3.2,
       "GravityScale": 0.0,
       "PreferredBiomes": ["Plains"],
       "FatigueGainPerSec": 0.0033333,

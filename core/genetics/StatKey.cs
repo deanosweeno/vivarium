@@ -11,6 +11,8 @@ public enum StatKey
     Acceleration,
     TurnRate,
     Radius,
+    SprintAcceleration,
+    SprintSpeed,
     GravityScale,
     MaxFlyHeight,
     FatigueGainPerSec,

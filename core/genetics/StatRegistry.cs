@@ -20,6 +20,8 @@ public static class StatRegistry
         [StatKey.Acceleration] = new((t, _) => t.Acceleration, (t, _, v) => t.Acceleration = v, 0f, 20f),
         [StatKey.TurnRate] = new((t, _) => t.TurnRate, (t, _, v) => t.TurnRate = v, 0f, 20f),
         [StatKey.Radius] = new((t, _) => t.Radius, (t, _, v) => t.Radius = v, 0.05f, 5f),
+        [StatKey.SprintAcceleration] = new((t, _) => t.SprintAcceleration, (t, _, v) => t.SprintAcceleration = v, 0f, 20f),
+        [StatKey.SprintSpeed] = new((t, _) => t.SprintSpeed, (t, _, v) => t.SprintSpeed = v, 0f, 10f),
         [StatKey.GravityScale] = new((t, _) => t.GravityScale, (t, _, v) => t.GravityScale = v, -2f, 2f),
         [StatKey.MaxFlyHeight] = new((t, _) => t.MaxFlyHeight, (t, _, v) => t.MaxFlyHeight = v, 0f, float.MaxValue),
         [StatKey.FatigueGainPerSec] = new((t, _) => t.FatigueGainPerSec, (t, _, v) => t.FatigueGainPerSec = v, 0f, 5f),

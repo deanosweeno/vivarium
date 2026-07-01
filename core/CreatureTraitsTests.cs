@@ -14,6 +14,8 @@ public class CreatureTraitsTests
         Assert.Equal(2.0f, traits.Acceleration);
         Assert.Equal(3.0f, traits.TurnRate);
         Assert.Equal(0.5f, traits.Radius);
+        Assert.Equal(0.6f, traits.SprintSpeed);
+        Assert.Equal(2.0f, traits.SprintAcceleration);
         Assert.Equal(1.0f, traits.GravityScale);
         Assert.False(traits.CanFly);
         Assert.Equal(float.MaxValue, traits.MaxFlyHeight);
@@ -44,6 +46,8 @@ public class CreatureTraitsTests
         traits.Acceleration = 5.0f;
         traits.TurnRate = 6.0f;
         traits.Radius = 1.0f;
+        traits.SprintSpeed = 2.5f;
+        traits.SprintAcceleration = 8.0f;
         traits.GravityScale = 0.5f;
         traits.CanFly = true;
         traits.MaxFlyHeight = 10f;
@@ -55,6 +59,8 @@ public class CreatureTraitsTests
         Assert.Equal(5.0f, traits.Acceleration);
         Assert.Equal(6.0f, traits.TurnRate);
         Assert.Equal(1.0f, traits.Radius);
+        Assert.Equal(2.5f, traits.SprintSpeed);
+        Assert.Equal(8.0f, traits.SprintAcceleration);
         Assert.Equal(0.5f, traits.GravityScale);
         Assert.True(traits.CanFly);
         Assert.Equal(10f, traits.MaxFlyHeight);
@@ -72,6 +78,8 @@ public class CreatureTraitsTests
             Acceleration = 3.0f,
             TurnRate = 4.0f,
             Radius = 0.75f,
+            SprintSpeed = 2.0f,
+            SprintAcceleration = 5.0f,
             GravityScale = 2.0f,
             CanFly = true,
             MaxFlyHeight = 20f,
@@ -88,6 +96,8 @@ public class CreatureTraitsTests
         Assert.Equal(original.Acceleration, copy.Acceleration);
         Assert.Equal(original.TurnRate, copy.TurnRate);
         Assert.Equal(original.Radius, copy.Radius);
+        Assert.Equal(original.SprintSpeed, copy.SprintSpeed);
+        Assert.Equal(original.SprintAcceleration, copy.SprintAcceleration);
         Assert.Equal(original.GravityScale, copy.GravityScale);
         Assert.Equal(original.CanFly, copy.CanFly);
         Assert.Equal(original.MaxFlyHeight, copy.MaxFlyHeight);

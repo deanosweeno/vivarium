@@ -79,6 +79,13 @@ public sealed class Simulator : IFlockEnv
     /// <summary>Tunables for food density and eat range. Defaults are sensible for a small arena.</summary>
     public FoodConfig FoodSpawn { get; set; } = new();
 
+    /// <summary>The harvestable-gene catalog, or null when genetics isn't wired up (harvest verb is a
+    /// no-op then). Set by the harness/game after loading <c>assets/genes.json</c>.</summary>
+    public GeneCatalog? Genes { get; set; }
+
+    /// <summary>Tunables for the §3 harvest/craft/splice loop. Data-over-code home for drop odds.</summary>
+    public GeneticsConfig GeneticsCfg { get; set; } = GeneticsConfig.Default;
+
     /// <summary>Total number of entities in the simulation.</summary>
     public int EntityCount => Entities.Count;
 
@@ -144,6 +151,26 @@ public sealed class Simulator : IFlockEnv
                traits ?? Blob.DefaultBlobTraits,
                null,
                drives ?? Drives.Randomized(Rng));
+
+    /// <summary>
+    /// Spawn an expressed <see cref="Phenotype"/> as a live <see cref="Blob"/> (§8) — the
+    /// genetics loop's payoff: a spliced genome becomes a creature in the running sim. Uses the
+    /// phenotype's Traits + Drives through the standard spawn path, then assigns its Body and the
+    /// source <paramref name="genome"/> (mirrors how <see cref="HerdSpawner"/> assigns Body after
+    /// spawn). The visual layer lazy-instantiates a CreatureVisual for any Blob with a Body.
+    /// </summary>
+    public Blob SpawnFromPhenotype(Vector3 position, Phenotype pheno, Genome? genome = null)
+    {
+        var creature = (Blob)Spawn(position,
+            new BlobFactory(Behavior, FleeStrategy, Rng),
+            new OverlapAvoidingPlacement(ArenaClampPlacement.Instance),
+            pheno.Traits,
+            null,
+            pheno.Drives);
+        creature.Body = pheno.Body;
+        creature.Genome = genome;
+        return creature;
+    }
 
     /// <summary>
     /// Spawn a Creature with the given movement strategy, avoiding overlap.
@@ -389,7 +416,15 @@ public sealed class Simulator : IFlockEnv
     /// arena floor. Reads position only — no randomness — so the sim stays deterministic.
     /// </summary>
     private float GroundFloor(Vector3 pos)
-        => Map is not null ? Map.HeightAt(pos) : Arena.MinY;
+    {
+        if (Map is null) return Arena.MinY;
+        float h = Map.HeightAt(pos);
+        // Bilinear interpolation can bleed sunk water-cell heights into adjacent
+        // walkable cells, pulling creatures below the visible water plane. Clamp.
+        if (Map.IsWalkableWorld(pos) && h < Map.SeaLevel)
+            h = Map.SeaLevel;
+        return h;
+    }
 
     /// <summary>
     /// Apply the effects of the biome under a creature for this tick: accumulate
@@ -407,7 +442,12 @@ public sealed class Simulator : IFlockEnv
         entity.Happiness += def.HappinessRate * (float)delta;
 
         // Cap horizontal speed to the biome-adjusted maximum (terrain slows/speeds movement).
-        float maxSpeed = entity.Traits.MaxSpeed * def.SpeedMultiplier;
+        // When the creature is sprinting (DesiredVelocity > MaxSpeed), use SprintSpeed as the
+        // base instead of MaxSpeed so the biome multiplier doesn't cancel the sprint.
+        float baseSpeed = entity.DesiredVelocity.Length() > entity.Traits.MaxSpeed + 1e-6f
+            ? entity.Traits.SprintSpeed
+            : entity.Traits.MaxSpeed;
+        float maxSpeed = baseSpeed * def.SpeedMultiplier;
         var v = entity.Velocity;
         var horizontal = new System.Numerics.Vector3(v.X, 0f, v.Z);
         float speed = horizontal.Length();
@@ -504,7 +544,7 @@ public sealed class Simulator : IFlockEnv
     private void ResolvePlayerInteractions()
     {
         if (Player is null) return;
-        _playerController.Resolve(Player, Entities, Food, Behavior, Rng);
+        _playerController.Resolve(Player, Entities, Food, Behavior, Rng, Genes, GeneticsCfg);
     }
 
 }

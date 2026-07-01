@@ -30,6 +30,21 @@ public sealed class CreatureTraits
     public float TurnRate { get; set; } = 3.0f;
 
     /// <summary>
+    /// Horizontal speed when sprinting (fleeing, charging, etc.) in arena units
+    /// per second. Default equals <see cref="MaxSpeed"/> — no sprint benefit unless
+    /// explicitly configured higher. The sprint signal is implicit: when
+    /// <see cref="Creature.DesiredVelocity"/> exceeds <see cref="MaxSpeed"/>, the
+    /// locomotion layer reads this value as the speed cap instead.
+    /// </summary>
+    public float SprintSpeed { get; set; } = 0.6f;
+
+    /// <summary>
+    /// How quickly the creature accelerates while sprinting, in arena units per
+    /// second^2. Default equals <see cref="Acceleration"/>.
+    /// </summary>
+    public float SprintAcceleration { get; set; } = 2.0f;
+
+    /// <summary>
     /// Collision sphere radius in arena units.
     /// </summary>
     public float Radius { get; set; } = 0.5f;
@@ -115,6 +130,8 @@ public sealed class CreatureTraits
         GravityScale = other.GravityScale;
         CanFly = other.CanFly;
         MaxFlyHeight = other.MaxFlyHeight;
+        SprintSpeed = other.SprintSpeed;
+        SprintAcceleration = other.SprintAcceleration;
         PreferredBiomes = other.PreferredBiomes;
         FatigueGainPerSec = other.FatigueGainPerSec;
         FatigueRecoverPerSec = other.FatigueRecoverPerSec;

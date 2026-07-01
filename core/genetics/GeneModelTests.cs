@@ -38,6 +38,20 @@ public class GeneModelTests
     }
 
     [Fact]
+    public void StatRegistry_SprintSpeed_ClampsToRange()
+    {
+        var traits = CreatureTraits.Default;
+        var drives = Drives.Default;
+        var (min, max) = StatRegistry.Range(StatKey.SprintSpeed);
+
+        StatRegistry.Set(StatKey.SprintSpeed, traits, drives, max + 100f);
+        Assert.Equal(max, StatRegistry.Get(StatKey.SprintSpeed, traits, drives));
+
+        StatRegistry.Set(StatKey.SprintSpeed, traits, drives, min - 100f);
+        Assert.Equal(min, StatRegistry.Get(StatKey.SprintSpeed, traits, drives));
+    }
+
+    [Fact]
     public void Genome_Create_AcceptsValidBaseAndSpecialty()
     {
         var baseGene = MakeGene("base.sheep", GeneKind.Base);

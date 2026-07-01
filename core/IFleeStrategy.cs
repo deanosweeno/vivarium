@@ -4,9 +4,13 @@ namespace Vivarium.Core;
 
 /// <summary>
 /// Composable per-creature flee-from-player strategy. All flee behavior is data-driven through
-/// this interface — speed, safe distance, flee direction, flock-flee policy. Each creature type
+/// this interface — safe distance, flee direction, flock-flee policy. Each creature type
 /// (sheep, deer, sloth, …) injects its own implementation, so flee behavior can be changed
 /// per-creature and reused across types without touching the brain or flock code.
+///
+/// Sprint speed during flee is owned by <see cref="CreatureTraits.SprintSpeed"/>, not by this
+/// interface — so one creature type can share a flee strategy but sprint at different speeds
+/// tuned purely through its data.
 /// </summary>
 public interface IFleeStrategy
 {
@@ -17,13 +21,6 @@ public interface IFleeStrategy
     /// <param name="holdingFood">Whether the player is carrying food in hand.</param>
     /// <param name="affection">This creature's bond with the player [0,1].</param>
     bool IsPlayerThreat(bool holdingFood, float affection);
-
-    /// <summary>
-    /// Speed multiplier applied when this creature flees the player. 1.0 = full max speed
-    /// (gallop). Lower values produce an amble; higher values produce a sprint faster than
-    /// normal locomotion.
-    /// </summary>
-    float FleeSpeedMultiplier { get; }
 
     /// <summary>
     /// Horizontal distance (arena units) the creature must reach from the player to feel safe.
@@ -56,11 +53,4 @@ public interface IFleeStrategy
     /// normal action table via scoring.
     /// </summary>
     bool FleeOverridesAll { get; }
-
-    /// <summary>
-    /// Speed cap for Flock steering when the herd is fleeing the player. Receives the
-    /// creature's own MaxSpeed; returns the boosted cap so all members move in lock-step
-    /// with the fleeing anchor. Default multiplies by <see cref="FleeSpeedMultiplier"/>.
-    /// </summary>
-    float FlockFleeCap(float maxSpeed) => maxSpeed * FleeSpeedMultiplier;
 }

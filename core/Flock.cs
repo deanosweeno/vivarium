@@ -91,14 +91,14 @@ public sealed class Flock
 
         if (fleePlayer)
         {
-            // Flock flee: bolt away from the player at member gallop-panic speed.
-            // The anchor's pace is the average member MaxSpeed × flee multiplier,
+            // Flock flee: bolt away from the player at member sprint speed.
+            // The anchor's pace is the average member SprintSpeed,
             // so the herd moves in perfect lock-step — members cohere at the same cap.
             Current = FlockAction.FleePlayer;
-            float avgMax = 0f;
-            foreach (var m in Members) avgMax += m.Traits.MaxSpeed;
-            avgMax /= Members.Count;
-            float fleeSpeed = avgMax * strategy.FleeSpeedMultiplier;
+            float avgSprint = 0f;
+            foreach (var m in Members) avgSprint += m.Traits.SprintSpeed;
+            avgSprint /= Members.Count;
+            float fleeSpeed = avgSprint;
             vel = Steering.Flee(Anchor, playerPos, fleeSpeed);
         }
         else

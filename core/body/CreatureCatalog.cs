@@ -135,6 +135,8 @@ public sealed class CreatureCatalog
         if (d.GrazeHungerThreshold is { } gh) t.GrazeHungerThreshold = gh;
         if (d.SenseRadius is { } sr) t.SenseRadius = sr;
         if (d.FoodSenseRadius is { } fsr) t.FoodSenseRadius = fsr;
+        if (d.SprintSpeed is { } ss) t.SprintSpeed = ss;
+        if (d.SprintAcceleration is { } sa) t.SprintAcceleration = sa;
         return t;
     }
 
@@ -199,6 +201,8 @@ public sealed class CreatureCatalog
         public float? GrazeHungerThreshold { get; set; }
         public float? SenseRadius { get; set; }
         public float? FoodSenseRadius { get; set; }
+        public float? SprintSpeed { get; set; }
+        public float? SprintAcceleration { get; set; }
     }
 
     private sealed class DrivesDto

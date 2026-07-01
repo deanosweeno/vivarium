@@ -29,4 +29,12 @@ public readonly struct InteractionContext
 
     /// <summary>Seeded RNG for any randomized verb outcomes. Keeps interactions reproducible.</summary>
     public Random Rng { get; init; }
+
+    /// <summary>The harvestable-gene catalog, or null if genetics isn't wired up (e.g. older tests) —
+    /// <see cref="HarvestInteraction"/> gates on this.</summary>
+    public GeneCatalog? Genes { get; init; }
+
+    /// <summary>Harvest drop-rate tunables. Defaults to <see cref="GeneticsConfig.Default"/> so callers
+    /// that don't care about genetics don't need to set it.</summary>
+    public GeneticsConfig GeneticsCfg { get; init; }
 }

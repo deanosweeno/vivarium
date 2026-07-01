@@ -584,4 +584,73 @@ public class BehaviorTests
         Assert.False(brain.ForceAction("NotAnAction"));
         Assert.Equal("Rest", brain.CurrentName); // unchanged
     }
+
+    // ---------- sprint (implicit signal via DesiredVelocity) ----------
+
+    [Fact]
+    public void AvoidPlayer_UsesSprintSpeed_ExceedsMaxSpeed()
+    {
+        // When a creature with SprintSpeed > MaxSpeed flees the player, DesiredVelocity
+        // magnitude should equal SprintSpeed (not MaxSpeed), triggering the implicit
+        // sprint signal in SteeringLocomotion.
+        var traits = new CreatureTraits { MaxSpeed = 1f, SprintSpeed = 2.5f };
+        var self = new Creature(Vector3.Zero, traits, new SteeringLocomotion(),
+            new Drives { Fear = 1f, Curiosity = 0f });
+        var brain = new UtilityBrain(new BehaviorConfig());
+        var senses = new SenseContext
+        {
+            HasPlayer = true, PlayerPosition = new Vector3(5, 0, 0),
+            IsPlayerThreat = true, HasFlock = false,
+        };
+
+        brain.Tick(0.1, self, senses, new Random(1));
+
+        Assert.Equal("FleePlayer", brain.CurrentName);
+        Assert.True(self.DesiredVelocity.Length() > self.Traits.MaxSpeed + 0.1f,
+            $"flee DesiredVelocity ({self.DesiredVelocity.Length()}) should exceed MaxSpeed ({self.Traits.MaxSpeed})");
+        Assert.True(Math.Abs(self.DesiredVelocity.Length() - self.Traits.SprintSpeed) < 0.01f,
+            $"flee DesiredVelocity ({self.DesiredVelocity.Length()}) should ≈ SprintSpeed ({self.Traits.SprintSpeed})");
+    }
+
+    [Fact]
+    public void SteeringLocomotion_ClampsToSprintSpeed_WhenDesiredExceedsMaxSpeed()
+    {
+        // When DesiredVelocity > MaxSpeed, SteeringLocomotion should use SprintSpeed
+        // as the speed cap instead of MaxSpeed.
+        var traits = new CreatureTraits { MaxSpeed = 1f, SprintSpeed = 2.5f, SprintAcceleration = 100f };
+        var self = new Creature(Vector3.Zero, traits, new SteeringLocomotion());
+        self.DesiredVelocity = new Vector3(2.5f, 0f, 0f); // sprint-speed direction
+
+        var arena = Arena.GroundArena(20, 20);
+        self.Movement.Tick(0.1, self, arena, new Random(1));
+
+        // With high acceleration, should reach SprintSpeed cap.
+        Assert.True(self.Velocity.X >= self.Traits.MaxSpeed + 0.1f,
+            $"velocity ({self.Velocity.X}) should exceed MaxSpeed ({self.Traits.MaxSpeed})");
+        Assert.True(self.Velocity.X <= self.Traits.SprintSpeed + 0.01f,
+            $"velocity ({self.Velocity.X}) should be capped at SprintSpeed ({self.Traits.SprintSpeed})");
+    }
+
+    [Fact]
+    public void Wander_DoesNotTriggerSprint_StaysAtMaxSpeed()
+    {
+        // A normal Wander action should produce DesiredVelocity ≤ MaxSpeed,
+        // so the implicit sprint signal never fires and the cap stays at MaxSpeed.
+        var traits = new CreatureTraits { MaxSpeed = 1f, SprintSpeed = 2.5f, SprintAcceleration = 100f };
+        var self = new Creature(Vector3.Zero, traits, new SteeringLocomotion(),
+            new Drives { Curiosity = 1f, Fear = 0f });
+        var brain = new UtilityBrain(new BehaviorConfig());
+
+        brain.Tick(0.1, self, new SenseContext(), new Random(1));
+
+        Assert.Equal("Wander", brain.CurrentName);
+        Assert.True(self.DesiredVelocity.Length() <= self.Traits.MaxSpeed + 0.01f,
+            $"wander DesiredVelocity ({self.DesiredVelocity.Length()}) should not exceed MaxSpeed ({self.Traits.MaxSpeed})");
+
+        var arena = Arena.GroundArena(20, 20);
+        self.Movement.Tick(0.1, self, arena, new Random(2));
+        var horiz = new System.Numerics.Vector3(self.Velocity.X, 0f, self.Velocity.Z);
+        Assert.True(horiz.Length() <= self.Traits.MaxSpeed + 0.01f,
+            $"wander velocity ({horiz.Length()}) should be capped at MaxSpeed ({self.Traits.MaxSpeed})");
+    }
 }

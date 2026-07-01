@@ -20,10 +20,10 @@ public sealed class SheepFleeStrategy : IFleeStrategy
         // Sheep fear the player unless food is offered OR the creature is bonded.
         => !holdingFood && affection < _bondThreshold;
 
-    public float FleeSpeedMultiplier => 2.0f;        // 2× gallop panic
+    public bool FleeOverridesAll => true;             // sheep panic overrides everything
+
     public float SafeDistance => 5f;                  // same as default SenseRadius
     public bool FlockFleesAsGroup => true;
-    public bool FleeOverridesAll => true;             // sheep panic overrides everything
 
     public Vector3? GetFleeTarget(Vector3 self, Vector3 player, Vector3? nearestFlock)
         // Isolated sheep flee toward the nearest flock for safety.

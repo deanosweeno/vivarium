@@ -795,16 +795,49 @@ public class SimulatorTests
     public void Surface_Blob_FollowsTerrainDown()
     {
         // Below-zero terrain: a clamp-up-only floor would leave the blob floating at y=0;
-        // it must snap DOWN onto the surface.
+        // it must snap DOWN onto the surface. Set SeaLevel below the terrain height so
+        // the walkable-ground clamp (which guards against water-edge interpolation bleed)
+        // is not triggered — this test is about legitimate below-zero walkable terrain.
         var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
         {
             Map = UniformHeightMap(-2f),
         };
+        sim.Map.SeaLevel = -4f;
         var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
 
         sim.Tick(0.1);
 
         Assert.Equal(-2f + blob.Traits.Radius, blob.Position.Y, 4);
+    }
+
+    [Fact]
+    public void Surface_Blob_NextToWater_StaysAboveSeaLevel()
+    {
+        // Regression: HeightAt bilinearly interpolates between the four nearest cell
+        // centers. When a walkable Grass cell (height 0) borders a Water cell sunk
+        // below SeaLevel (height -1.5), a creature near the border gets pulled
+        // below the water plane. GroundFloor must clamp to SeaLevel for walkable cells.
+        var map = new MapData(4, 4, 1f) { SeaLevel = 0f };
+        // Column 1: walkable Grass at height 0.  Column 2: water sunk to -1.5.
+        for (int z = 0; z < 4; z++)
+        {
+            map.SetCell(1, z, new Cell { Terrain = Terrain.Grass, Height = 0f });
+            map.SetCell(2, z, new Cell { Terrain = Terrain.Water, Height = -1.5f });
+        }
+
+        var sim = new Simulator(Arena.GroundArena(4, 4), seed: 1) { Map = map };
+
+        // Spawn in the Grass column, close enough to the Water border that
+        // bilinear interpolation drags the height below SeaLevel.
+        // WorldToCell: cx = floor(X + Width/2) = floor(X + 2).
+        // X = -0.1 → cx = 1 (Grass, walkable).  The Water column starts at X=0.
+        var blob = sim.SpawnBlob(new Vector3(-0.1f, 0, 0));
+
+        sim.Tick(0.1);
+
+        // Must rest at SeaLevel + radius, not at the interpolated ~(-0.6 + radius).
+        Assert.True(blob.Position.Y >= map.SeaLevel + blob.Traits.Radius - 1e-4f,
+            $"blob Y {blob.Position.Y} should be >= sea level ({map.SeaLevel}) + radius");
     }
 
     [Fact]
@@ -1222,5 +1255,49 @@ public class SimulatorTests
         Assert.Equal(a.Entities[0].Position, b.Entities[0].Position);
         Assert.Equal(a.Entities[0].Velocity, b.Entities[0].Velocity);
         Assert.Equal(a.Food[0].Amount, b.Food[0].Amount);
+    }
+
+    // -------------------------------------------------
+    // Sprint + biome interaction
+    // -------------------------------------------------
+
+    private static readonly BiomeCatalog SpeedBiomeCatalog = BiomeCatalog.Parse("""
+        [
+          { "Biome": "Plains", "HappinessRate": 0.0, "SpeedMultiplier": 2.0 }
+        ]
+        """);
+
+    [Fact]
+    public void ApplyBiomeEffects_UsesSprintSpeed_WhenSprinting()
+    {
+        // When a sprinting creature enters a biome with SpeedMultiplier, the biome cap
+        // must use SprintSpeed as the base (not MaxSpeed), otherwise the sprint is cancelled.
+        var sim = new Simulator(Arena.GroundArena(16, 16), seed: 1)
+        {
+            Map = UniformBiomeMap(Biome.Plains),
+            Biomes = SpeedBiomeCatalog,
+        };
+        // Spawn player at (4,0,0) — close enough for blob to sense threat.
+        var (player, input) = sim.SpawnPlayer(new Vector3(4, 0, 0));
+        input.CarriedFood = null; // not holding food → player IS threat
+
+        var blob = sim.SpawnBlob(new Vector3(0, 0, 0));
+
+        // Sprint traits: SprintSpeed > MaxSpeed, high acceleration for instant sprint.
+        blob.Traits.MaxSpeed = 1f;
+        blob.Traits.SprintSpeed = 3f;
+        blob.Traits.SprintAcceleration = 100f;
+        blob.Traits.Radius = 0.5f;
+        blob.Drives.Fear = 1f; // terrified, brain picks FleePlayer
+
+        // Tick enough for acceleration to reach sprint speed.
+        sim.Tick(0.1);
+
+        // SpeedMultiplier 2.0 × SprintSpeed 3.0 = cap at 6.0. Velocity should well exceed MaxSpeed.
+        var horiz = new System.Numerics.Vector3(blob.Velocity.X, 0f, blob.Velocity.Z);
+        Assert.True(horiz.Length() > blob.Traits.MaxSpeed + 0.1f,
+            $"sprint velocity ({horiz.Length()}) should exceed MaxSpeed ({blob.Traits.MaxSpeed})");
+        Assert.True(horiz.Length() <= blob.Traits.SprintSpeed * 2f + 0.1f,
+            $"sprint velocity ({horiz.Length()}) should stay within biome sprint cap ({blob.Traits.SprintSpeed * 2f})");
     }
 }

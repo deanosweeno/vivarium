@@ -9,7 +9,6 @@ namespace Vivarium.Core;
 public sealed class NeverFleeStrategy : IFleeStrategy
 {
     public bool IsPlayerThreat(bool holdingFood, float affection) => false;
-    public float FleeSpeedMultiplier => 1f;
     public float SafeDistance => 0f;
     public Vector3? GetFleeTarget(Vector3 self, Vector3 player, Vector3? nearestFlock) => null;
     public bool FlockFleesAsGroup => false;
@@ -23,7 +22,6 @@ public sealed class NeverFleeStrategy : IFleeStrategy
 public sealed class AlwaysFleeStrategy : IFleeStrategy
 {
     public bool IsPlayerThreat(bool holdingFood, float affection) => true;
-    public float FleeSpeedMultiplier => 2f;
     public float SafeDistance => 5f;
     public Vector3? GetFleeTarget(Vector3 self, Vector3 player, Vector3? nearestFlock) => nearestFlock;
     public bool FlockFleesAsGroup => true;
